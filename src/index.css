@@ -10,6 +10,7 @@ body {
   padding: 40px;
   max-width: 800px;
   margin: 0 auto;
+  text-align: justify;
 }
 
 h1 {
@@ -74,6 +75,7 @@ button:hover {
 .tag {
   display: inline-block;
   margin-left: 0.5rem;
+  margin-bottom: 0.25rem;
   padding: 0.1rem 0.5rem;
   font-size: 0.85rem;
   background: #e0e0e0;
@@ -89,4 +91,9 @@ button:hover {
 .webgpu-warning code {
   background: #f0f0f0;
   padding: 0.1rem 0.3rem;
+}
+
+canvas {
+  max-width: 100%;
+  height: auto;
 }
