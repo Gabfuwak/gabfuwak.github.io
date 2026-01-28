@@ -6,7 +6,7 @@ export default function Home() {
       <h1>About me</h1>
       I'm a CS student in France, I'm mostly interested in robotics, computer graphics, deep learning and computer vision but overall any subject that impacts the world around us in a way or another.
 
-      Outside of more technical subjects I'm really into cooking, photography, rock climbing and many other things, so don't be surprised if you find a sourdough experiments between a representations learning one and a ray tracing other.
+      Outside of more technical subjects I'm really into cooking, photography, rock climbing and many other things, so don't be surprised if you find a sourdough experiment between a representation learning one and a ray tracing one.
     </div>
   );
 }

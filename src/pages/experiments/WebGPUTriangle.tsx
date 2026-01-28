@@ -225,7 +225,7 @@ export default function WebGPUTriangle() {
       <p><em>January 28, 2026</em></p>
 
       <p>
-        This experiment is a little bit like the "hello world" of experiments. It's not so complex, but it allows me to setup WebGPU properly in react and typescript. I'm mostly following along the beginning of <a href="https://codelabs.developers.google.com/your-first-webgpu-app">this tutorial</a> from Google and adding 3D logic like a camera. Writing precise instructions here would not serve that much purpose so you can check the tutorial out if you want to learn WebGPU. It's a very nice API.
+        This experiment is a little bit like the "hello world" of experiments. It's not so complex, but it allows me to set up WebGPU properly in React and TypeScript. I'm mostly following along the beginning of <a href="https://codelabs.developers.google.com/your-first-webgpu-app">this tutorial</a> from Google and adding 3D logic like a camera. Writing precise instructions here would not serve that much purpose so you can check the tutorial out if you want to learn WebGPU. It's a very nice API.
       </p>
 
 
