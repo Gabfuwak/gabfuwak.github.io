@@ -13,6 +13,7 @@ export default function Assignment() {
     const canvas = document.querySelector("canvas");
     if (!canvas) return;
 
+    let cancelled = false;
     let fpsCheckTimeout: number;
 
     (async () => {
@@ -23,10 +24,8 @@ export default function Assignment() {
           return;
         }
 
-        console.time("WebGPU init");
         // @ts-ignore - keeping adapter for reference
         const { device, context, _adapter } = await initWebGPU(canvas);
-        console.timeEnd("WebGPU init");
 
         const camera = initCamera(canvas);
         const mvpMatrix = getMVP(camera);
@@ -103,61 +102,92 @@ export default function Assignment() {
           }],
         };
 
-        const cellShaderModule = device.createShaderModule({
-          label: "Cell shader",
+        const shaderModule = device.createShaderModule({
+          label: "Shader",
           code: shaderCode
         });
 
 
-        const cellPipeline = device.createRenderPipeline({
-          label: "Cell pipeline",
-          layout: "auto",
-          vertex: {
-            module: cellShaderModule,
-            entryPoint: "vertexMain",
-            buffers: [vertexBufferLayout, vertexColorBufferLayout]
-          },
-          fragment: {
-            module: cellShaderModule,
-            entryPoint: "fragmentMain",
-            targets: [{
-              format: canvasFormat
-            }]
-          }
+        const bindGroupLayout = device.createBindGroupLayout({
+          entries: [{
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX,
+            buffer: { type: "uniform" },
+          }],
         });
 
         const bindGroup = device.createBindGroup({
-          layout: cellPipeline.getBindGroupLayout(0),
+          layout: bindGroupLayout,
           entries: [{
             binding: 0,
             resource: { buffer: mvpBuffer },
           }],
         });
 
-        const encoder = device.createCommandEncoder();
 
-        const pass = encoder.beginRenderPass({
-          colorAttachments: [{
-             view: context.getCurrentTexture().createView(),
-             loadOp: "clear",
-             clearValue: { r: 0, g: 0, b: 0.4, a: 1 },
-             storeOp: "store",
-          }]
+        const cellPipeline = device.createRenderPipeline({
+          label: "Render pipeline",
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+          }),
+          vertex: {
+            module: shaderModule,
+            entryPoint: "vertexMain",
+            buffers: [vertexBufferLayout, vertexColorBufferLayout]
+          },
+          fragment: {
+            module: shaderModule,
+            entryPoint: "fragmentMain",
+            targets: [{
+              format: canvasFormat
+            }]
+          },
+          depthStencil: {
+            format: "depth24plus",   // Must match our depth texture
+            depthWriteEnabled: true,
+            depthCompare: "less",    // Standard depth (Z) test
+          }
         });
 
 
+        const depthTexture = device.createTexture({
+            size: [canvas.width, canvas.height],
+            format: "depth24plus",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
 
-        pass.setPipeline(cellPipeline);
-        pass.setBindGroup(0, bindGroup);
-        pass.setVertexBuffer(0, vertexBuffer);
-        pass.setVertexBuffer(1, vertexColorBuffer);
-        pass.setIndexBuffer(indexBuffer, "uint32");
-        pass.drawIndexed(indexData.length, 1);
+        // Helper to render one frame
+        const renderFrame = () => {
+          const encoder = device.createCommandEncoder();
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: context.getCurrentTexture().createView(),
+              loadOp: "clear",
+              clearValue: { r: 0, g: 0, b: 0.4, a: 1 },
+              storeOp: "store",
+            }],
+            depthStencilAttachment: {
+              view: depthTexture.createView(),
+              depthClearValue: 1.0,
+              depthLoadOp: "clear",
+              depthStoreOp: "store",
+            },
+          });
 
-        pass.end();
+          pass.setPipeline(cellPipeline);
+          pass.setBindGroup(0, bindGroup);
+          pass.setVertexBuffer(0, vertexBuffer);
+          pass.setVertexBuffer(1, vertexColorBuffer);
+          pass.setIndexBuffer(indexBuffer, "uint32");
+          pass.drawIndexed(indexData.length, 1);
+          pass.end();
 
-        const commandBuffer = encoder.finish();
-        device.queue.submit([commandBuffer]);
+          const commandBuffer = encoder.finish();
+          device.queue.submit([commandBuffer]);
+        };
+
+        // Render initial frame immediately
+        renderFrame();
 
         // Measure FPS for performance warning
         const measureFPS = () => {
@@ -166,31 +196,14 @@ export default function Assignment() {
           const duration = 2000; // Measure for 2 seconds
 
           const renderLoop = () => {
-            const encoder = device.createCommandEncoder();
-            const pass = encoder.beginRenderPass({
-              colorAttachments: [{
-                view: context.getCurrentTexture().createView(),
-                loadOp: "clear",
-                clearValue: { r: 0, g: 0, b: 0.4, a: 1 },
-                storeOp: "store",
-              }]
-            });
+            if (cancelled) return;
 
-            pass.setPipeline(cellPipeline);
-            pass.setBindGroup(0, bindGroup);
-            pass.setVertexBuffer(0, vertexBuffer);
-            pass.setVertexBuffer(1, vertexColorBuffer);
-            pass.setIndexBuffer(indexBuffer, "uint32");
-            pass.drawIndexed(indexData.length, 1);
-            pass.end();
-
-            const commandBuffer = encoder.finish();
-            device.queue.submit([commandBuffer]);
+            renderFrame();
 
             frames++;
             const elapsed = performance.now() - startTime;
 
-            if (elapsed < duration) {
+            if (elapsed < duration && !cancelled) {
               requestAnimationFrame(renderLoop);
             } else {
               const fps = (frames / elapsed) * 1000;
@@ -215,6 +228,7 @@ export default function Assignment() {
     })();
 
     return () => {
+      cancelled = true;
       if (fpsCheckTimeout) {
         clearTimeout(fpsCheckTimeout);
       }
