@@ -132,7 +132,8 @@ export function initCamera(
 
 export function getMVP(camera: Camera): Float32Array {
   const model = mat4Translate(0.0, 0.0, 0.0);
-  const view = mat4Translate(camera.position[0], camera.position[1], camera.position[2]);
+  const view = new Float32Array(16);
+  lookAt(view, camera.position, camera.target, camera.up);
   const proj = mat4Perspective(
     camera.fov,
     camera.aspect,
