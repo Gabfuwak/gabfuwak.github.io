@@ -257,9 +257,13 @@ export default function Playground() {
     <div>
       <h1>WebGPU playground</h1>
 
+      <p>
       Congrats on finding this page, you went though the source code!
+      </p>
 
+      <p>
       This is what I'm currently working on. It might be a future experiment or a class assignment, who nose!
+      </p>
 
       {webgpuSupported ? (
         <>
