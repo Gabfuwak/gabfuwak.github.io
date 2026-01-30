@@ -5,7 +5,7 @@ import shaderCode from '../../shaders/assignment.wgsl?raw';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 
-export default function Assignment() {
+export default function Playground() {
   const [webgpuSupported, setWebgpuSupported] = useState(true);
   const [showPerformanceWarning, setShowPerformanceWarning] = useState(false);
 
@@ -29,7 +29,7 @@ export default function Assignment() {
 
         const camera = initCamera(canvas);
         const mvpMatrix = getMVP(camera);
-        const lightPos = new Float32Array([-3,3,3]);
+        const lightPos = new Float32Array([-3,3,-3]);
 
         const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
@@ -255,8 +255,11 @@ export default function Assignment() {
 
   return (
     <div>
-      <h1>WebGPU Triangle</h1>
-      <p><em>January 28, 2026</em></p>
+      <h1>WebGPU playground</h1>
+
+      Congrats on finding this page, you went though the source code!
+
+      This is what I'm currently working on. It might be a future experiment or a class assignment, who nose!
 
       {webgpuSupported ? (
         <>

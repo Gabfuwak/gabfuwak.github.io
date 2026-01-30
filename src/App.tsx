@@ -4,8 +4,8 @@ import Home from './pages/Home';
 import Projects from './pages/Projects';
 import Experiments from './pages/Experiments';
 import WebGPUTriangle from './pages/experiments/WebGPUTriangle';
-import Assignment from './pages/ImSynthesis/Assignment';
 import NotFound from './pages/NotFound';
+import Playground from './pages/ImSynthesis/Assignment';
 
 export default function App() {
   return (
@@ -16,7 +16,8 @@ export default function App() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/experiments" element={<Experiments />} />
         <Route path="/experiments/webgpu-triangle" element={<WebGPUTriangle />} />
-        <Route path="/secret/assignment" element={<Assignment />} />
+        <Route path="/secret/assignment" element={<Playground />} />
+        <Route path="/secret/playground" element={<Playground />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
