@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { createBox } from '../../utils/mesh_gen';
+import { createSphere } from '../../utils/mesh_gen';
 import { initWebGPU, initCamera, getMVP } from '../../utils/webgpu';
-import shaderCode from '../../shaders/triangle.wgsl?raw';
+import shaderCode from '../../shaders/assignment.wgsl?raw';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 
@@ -29,27 +29,20 @@ export default function Assignment() {
 
         const camera = initCamera(canvas);
         const mvpMatrix = getMVP(camera);
+        const lightPos = new Float32Array([-3,3,3]);
 
         const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
-        const box = createBox(1.0, 1.0, 1.0)
+        const sphere = createSphere(1, 100, 100);
 
-        const vertexPositions = box.positions;
+        const vertexPositions = sphere.positions;
 
-        const indexData = box.indices;
+        const indexData = sphere.indices;
 
 
-        const vertexColors = new Float32Array ([
-          // R, G, B
-          1.0, 1.0, 1.0,
-          1.0, 1.0, 0.0,
-          1.0, 0.0, 1.0,
-          1.0, 0.0, 0.0,
-          0.0, 1.0, 1.0,
-          0.0, 1.0, 0.0,
-          0.0, 0.0, 1.0,
-          0.0, 0.0, 0.0,
-        ]);
+        const vertexColors = sphere.colors;
+
+        const vertexNormals = sphere.normals;
 
         const vertexBuffer = device.createBuffer({
           label: "Vertices",
@@ -70,18 +63,29 @@ export default function Assignment() {
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
 
+        const vertexNormalsBuffer = device.createBuffer({
+          label: "Vertex normals",
+          size: vertexNormals.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+
         device.queue.writeBuffer(vertexBuffer, 0, vertexPositions);
         device.queue.writeBuffer(indexBuffer, 0, indexData);
         device.queue.writeBuffer(vertexColorBuffer, 0, vertexColors);
+        device.queue.writeBuffer(vertexNormalsBuffer, 0, vertexNormals);
 
 
-        const mvpBuffer = device.createBuffer({
-          size: 64, // 16 floats made of 4 bytes each
+        // Combine MVP and lightPos into a single uniform buffer
+        const uniformData = new Float32Array(16 + 4); // 16 floats for mat4x4, 4 for vec3 (padded)
+        uniformData.set(mvpMatrix, 0);  // First 16 floats
+        uniformData.set(lightPos, 16);   // Next 3 floats (vec3 needs 16-byte alignment)
+
+        const uniformBuffer = device.createBuffer({
+          size: 80, // 64 bytes (mat4x4) + 16 bytes (vec3 with padding)
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        // @ts-ignore - Float32Array type compatibility issue
-        device.queue.writeBuffer(mvpBuffer, 0, mvpMatrix);
+        device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
         const vertexBufferLayout: GPUVertexBufferLayout = {
           arrayStride: 12,
@@ -102,6 +106,15 @@ export default function Assignment() {
           }],
         };
 
+        const vertexNormalsBufferLayout: GPUVertexBufferLayout = {
+          arrayStride: 12,
+          attributes: [{
+            format: "float32x3" as GPUVertexFormat,
+            offset: 0,
+            shaderLocation: 2,
+          }],
+        };
+
         const shaderModule = device.createShaderModule({
           label: "Shader",
           code: shaderCode
@@ -111,7 +124,7 @@ export default function Assignment() {
         const bindGroupLayout = device.createBindGroupLayout({
           entries: [{
             binding: 0,
-            visibility: GPUShaderStage.VERTEX,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
             buffer: { type: "uniform" },
           }],
         });
@@ -120,7 +133,7 @@ export default function Assignment() {
           layout: bindGroupLayout,
           entries: [{
             binding: 0,
-            resource: { buffer: mvpBuffer },
+            resource: { buffer: uniformBuffer },
           }],
         });
 
@@ -133,7 +146,7 @@ export default function Assignment() {
           vertex: {
             module: shaderModule,
             entryPoint: "vertexMain",
-            buffers: [vertexBufferLayout, vertexColorBufferLayout]
+            buffers: [vertexBufferLayout, vertexColorBufferLayout, vertexNormalsBufferLayout]
           },
           fragment: {
             module: shaderModule,
@@ -141,6 +154,10 @@ export default function Assignment() {
             targets: [{
               format: canvasFormat
             }]
+          },
+          primitive: {
+            topology: "triangle-list",
+            cullMode: "none",
           },
           depthStencil: {
             format: "depth24plus",   // Must match our depth texture
@@ -178,6 +195,7 @@ export default function Assignment() {
           pass.setBindGroup(0, bindGroup);
           pass.setVertexBuffer(0, vertexBuffer);
           pass.setVertexBuffer(1, vertexColorBuffer);
+          pass.setVertexBuffer(2, vertexNormalsBuffer);
           pass.setIndexBuffer(indexBuffer, "uint32");
           pass.drawIndexed(indexData.length, 1);
           pass.end();
