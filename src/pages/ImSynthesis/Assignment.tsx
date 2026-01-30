@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+import { createBox } from '../../utils/mesh_gen';
 import { initWebGPU, initCamera, getMVP } from '../../utils/webgpu';
 import shaderCode from '../../shaders/triangle.wgsl?raw';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 
-export default function WebGPUTriangle() {
+export default function Assignment() {
   const [webgpuSupported, setWebgpuSupported] = useState(true);
   const [showPerformanceWarning, setShowPerformanceWarning] = useState(false);
 
@@ -32,23 +33,23 @@ export default function WebGPUTriangle() {
 
         const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
-        const vertexPositions = new Float32Array([
-          // X, Y, Z
-          -1.0, -1.0, 0.0,
-          1.0, -1.0, 0.0,
-          0.0, 1.0, 0.0
-        ]);
+        const box = createBox(1.0, 1.0, 1.0)
 
-        const indexData = new Uint32Array ([
-          0, 1, 2
-        ]);
+        const vertexPositions = box.positions;
+
+        const indexData = box.indices;
 
 
         const vertexColors = new Float32Array ([
           // R, G, B
+          1.0, 1.0, 1.0,
+          1.0, 1.0, 0.0,
+          1.0, 0.0, 1.0,
           1.0, 0.0, 0.0,
+          0.0, 1.0, 1.0,
           0.0, 1.0, 0.0,
-          0.0, 0.0, 1.0
+          0.0, 0.0, 1.0,
+          0.0, 0.0, 0.0,
         ]);
 
         const vertexBuffer = device.createBuffer({
@@ -225,15 +226,6 @@ export default function WebGPUTriangle() {
       <h1>WebGPU Triangle</h1>
       <p><em>January 28, 2026</em></p>
 
-      <p>
-        This experiment is a little bit like the "hello world" of experiments. It's not so complex, but it allows me to set up WebGPU properly in React and TypeScript. I'm mostly following along the beginning of <a href="https://codelabs.developers.google.com/your-first-webgpu-app">this tutorial</a> from Google and adding 3D logic like a camera. Writing precise instructions here would not serve that much purpose so you can check the tutorial out if you want to learn WebGPU. It's a very nice API.
-      </p>
-
-
-      <p>
-      Here is a canvas, if everything goes well you should see a very beautiful triangle!
-      </p>
-
       {webgpuSupported ? (
         <>
           {showPerformanceWarning && <VulkanWarning />}
@@ -242,12 +234,6 @@ export default function WebGPUTriangle() {
       ) : (
         <WebGPUWarning />
       )}
-
-
-      <p>
-      It's rendered in 3D with Z=0 and a camera at position (0,0,-4) looking directly at (0,0,0)
-      </p>
-
 
 
 
