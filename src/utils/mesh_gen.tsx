@@ -131,12 +131,43 @@ export function createBox(
         return mesh;
       }
 
+function merge_meshes(meshes: Mesh[]): Mesh {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  let vertexOffset = 0;
+
+  for (const mesh of meshes) {
+    positions.push(...mesh.positions);
+    normals.push(...mesh.normals);
+    uvs.push(...mesh.uvs);
+    colors.push(...mesh.colors);
+
+    for (let i = 0; i < mesh.indices.length; i++) {
+      indices.push(mesh.indices[i] + vertexOffset);
+    }
+
+    vertexOffset += mesh.positions.length / 3;
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    uvs: new Float32Array(uvs),
+    colors: new Float32Array(colors),
+    indices: new Uint32Array(indices),
+  };
+}
+
 function create_quad(
   a: number[],
   b: number[],
   c: number[],
   d: number[],
-  color: [number, number, number, number]
+  color: [number, number, number]
 ): Mesh {
           const cross = (a: Float32Array | number[], b: Float32Array | number[]): Float32Array => {
             const dst = new Float32Array(3);
@@ -162,7 +193,10 @@ function create_quad(
             return dst;
           }
 
-
+          const normalize = (v: Float32Array): Float32Array => {
+            const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            return new Float32Array([v[0] / len, v[1] / len, v[2] / len]);
+          }
 
           const positions = [
               a,
@@ -171,14 +205,13 @@ function create_quad(
               d
           ].flat();
 
-          // to verify
-          const normal = cross(subtract(a, b), subtract(a, d));
+          const normal: number[] = Array.from(normalize(cross(subtract(a, b), subtract(a, d))));
 
-        const normals = new Array(4).fill(normal).flat();
+          const normals = new Array(4).fill(normal).flat();
 
           const indices: number[] = [
               0, 1, 2,
-              1, 2, 3,
+              0, 2, 3,
           ]
 
           const uvs: number[] = [0,0, 1,0, 1,1, 0,1];
@@ -202,47 +235,163 @@ function create_quad(
       }
 
 export function createCornellBox(): Mesh {
+  const white: [number, number, number] = [1.0, 1.0, 1.0];
+  const red: [number, number, number] = [0.65, 0.05, 0.05];
+  const green: [number, number, number] = [0.12, 0.45, 0.15];
+  const light: [number, number, number] = [1.0, 1.0, 1.0];
 
-        const floor = create_quad(
-                          // a, b, c, d
-                          [552.8, 0.0,   0.0],
-                          [0.0, 0.0,   0.0],
-                          [0.0, 0.0, 559.2],
-                          [549.6, 0.0, 559.2],
-                          // color
-                          [1.0, 1.0, 1.0, 1.0] 
-                        );
+  // Floor
+  const floor = create_quad(
+    [552.8, 0.0, 0.0],
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 559.2],
+    [549.6, 0.0, 559.2],
+    white
+  );
 
-        /*const ceiling = create_quad(
+  // Ceiling
+  const ceiling = create_quad(
+    [556.0, 548.8, 0.0],
+    [556.0, 548.8, 559.2],
+    [0.0, 548.8, 559.2],
+    [0.0, 548.8, 0.0],
+    white
+  );
 
-                          [556.0, 548.8, 0.0   ],
-                          [556.0, 548.8, 559.2],
-                          [0.0, 548.8, 559.2],
-                          [0.0, 548.8,   0.0],
+  // Light
+  const lightQuad = create_quad(
+    [343.0, 548.8, 227.0],
+    [343.0, 548.8, 332.0],
+    [213.0, 548.8, 332.0],
+    [213.0, 548.8, 227.0],
+    light
+  );
 
-                        );
+  // Back wall
+  const backWall = create_quad(
+    [549.6, 0.0, 559.2],
+    [0.0, 0.0, 559.2],
+    [0.0, 548.8, 559.2],
+    [556.0, 548.8, 559.2],
+    white
+  );
 
+  // Right wall (green)
+  const rightWall = create_quad(
+    [0.0, 0.0, 559.2],
+    [0.0, 0.0, 0.0],
+    [0.0, 548.8, 0.0],
+    [0.0, 548.8, 559.2],
+    green
+  );
 
-        const back = create_quad(
-[549.6,   0.0, 559.2], 
-[  0.0,   0.0, 559.2],
-[  0.0, 548.8, 559.2],
-[556.0, 548.8, 559.2],
-        )
+  // Left wall (red)
+  const leftWall = create_quad(
+    [552.8, 0.0, 0.0],
+    [549.6, 0.0, 559.2],
+    [556.0, 548.8, 559.2],
+    [556.0, 548.8, 0.0],
+    red
+  );
 
-        const right = 
-          */
-        
+  // Short block (5 faces)
+  const shortBlockTop = create_quad(
+    [130.0, 165.0, 65.0],
+    [82.0, 165.0, 225.0],
+    [240.0, 165.0, 272.0],
+    [290.0, 165.0, 114.0],
+    white
+  );
 
+  const shortBlockFront = create_quad(
+    [290.0, 0.0, 114.0],
+    [290.0, 165.0, 114.0],
+    [240.0, 165.0, 272.0],
+    [240.0, 0.0, 272.0],
+    white
+  );
 
+  const shortBlockRight = create_quad(
+    [130.0, 0.0, 65.0],
+    [130.0, 165.0, 65.0],
+    [290.0, 165.0, 114.0],
+    [290.0, 0.0, 114.0],
+    white
+  );
 
-        /*const mesh = {
-          positions: new Float32Array(positions),
-          normals: new Float32Array(normals),
-          uvs: new Float32Array(uvs),
-          colors: new Float32Array(colors),
-          indices: new Uint32Array(indices)
-        };
-      */
-        return floor;
-      }
+  const shortBlockBack = create_quad(
+    [82.0, 0.0, 225.0],
+    [82.0, 165.0, 225.0],
+    [130.0, 165.0, 65.0],
+    [130.0, 0.0, 65.0],
+    white
+  );
+
+  const shortBlockLeft = create_quad(
+    [240.0, 0.0, 272.0],
+    [240.0, 165.0, 272.0],
+    [82.0, 165.0, 225.0],
+    [82.0, 0.0, 225.0],
+    white
+  );
+
+  // Tall block (5 faces)
+  const tallBlockTop = create_quad(
+    [423.0, 330.0, 247.0],
+    [265.0, 330.0, 296.0],
+    [314.0, 330.0, 456.0],
+    [472.0, 330.0, 406.0],
+    white
+  );
+
+  const tallBlockFront = create_quad(
+    [423.0, 0.0, 247.0],
+    [423.0, 330.0, 247.0],
+    [472.0, 330.0, 406.0],
+    [472.0, 0.0, 406.0],
+    white
+  );
+
+  const tallBlockRight = create_quad(
+    [472.0, 0.0, 406.0],
+    [472.0, 330.0, 406.0],
+    [314.0, 330.0, 456.0],
+    [314.0, 0.0, 456.0],
+    white
+  );
+
+  const tallBlockBack = create_quad(
+    [314.0, 0.0, 456.0],
+    [314.0, 330.0, 456.0],
+    [265.0, 330.0, 296.0],
+    [265.0, 0.0, 296.0],
+    white
+  );
+
+  const tallBlockLeft = create_quad(
+    [265.0, 0.0, 296.0],
+    [265.0, 330.0, 296.0],
+    [423.0, 330.0, 247.0],
+    [423.0, 0.0, 247.0],
+    white
+  );
+
+  return merge_meshes([
+    floor,
+    ceiling,
+    lightQuad,
+    backWall,
+    rightWall,
+    leftWall,
+    shortBlockTop,
+    shortBlockFront,
+    shortBlockRight,
+    shortBlockBack,
+    shortBlockLeft,
+    tallBlockTop,
+    tallBlockFront,
+    tallBlockRight,
+    tallBlockBack,
+    tallBlockLeft,
+  ]);
+}

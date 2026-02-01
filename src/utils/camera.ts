@@ -114,6 +114,8 @@ export function pan(camera: Camera, dx: number, dy: number): void {
 export function initCamera(
   canvas: HTMLCanvasElement,
   cameraPos: [number, number, number] = [0, 0, -4],
+  target: [number, number, number] = [0, 0, 0],
+  up: [number, number, number] = [0, 1, 0],
   fov: number = Math.PI / 4,
   near: number = 0.1,
   far: number = 100
@@ -121,8 +123,8 @@ export function initCamera(
   const aspect = canvas.width / canvas.height;
   return {
     position: cameraPos,
-    target: [0, 0, 0],
-    up: [0, 1, 0],
+    target: target,
+    up: up,
     fov,
     aspect,
     near,

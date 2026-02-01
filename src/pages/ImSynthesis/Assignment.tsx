@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { createSphere } from '../../utils/mesh_gen';
+import { useEffect, useState, useRef } from 'react';
+import { createCornellBox } from '../../utils/mesh_gen';
 import { initWebGPU, initCamera, getMVP } from '../../utils/webgpu';
-import shaderCode from '../../shaders/assignment.wgsl?raw';
+import shaderCode from '../../shaders/raytracing.wgsl?raw';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 
@@ -9,12 +9,22 @@ export default function Playground() {
   const [webgpuSupported, setWebgpuSupported] = useState(true);
   const [showPerformanceWarning, setShowPerformanceWarning] = useState(false);
 
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  const isAnimatingRef = useRef(false);
+
+  useEffect(() => {
+    isAnimatingRef.current = isAnimating;
+  }, [isAnimating]);
+
   useEffect(() => {
     const canvas = document.querySelector("canvas");
     if (!canvas) return;
 
     let cancelled = false;
     let fpsCheckTimeout: number;
+
+
 
     (async () => {
       try {
@@ -27,18 +37,24 @@ export default function Playground() {
         // @ts-ignore - keeping adapter for reference
         const { device, context, _adapter } = await initWebGPU(canvas);
 
-        const camera = initCamera(canvas);
+        const camera = initCamera(canvas,
+                                  [278, 273, -800], // position
+                                  [278, 273, -799], // target (center of Cornell box)
+                                  [0, 1, 0], // up
+                                  2 * Math.atan(0.025 / (2 * 0.035)), // fov from sensor height 0.025 and focal length 0.035
+                                  0.1, // near
+                                  2000, // far
+                                 );
         const mvpMatrix = getMVP(camera);
-        const lightPos = new Float32Array([-3,3,-3]);
+        const lightPos = new Float32Array([278, 530, 280]);
 
         const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
-        const sphere = createSphere(1, 100, 100);
+        const sphere = createCornellBox();
 
         const vertexPositions = sphere.positions;
 
         const indexData = sphere.indices;
-
 
         const vertexColors = sphere.colors;
 
@@ -173,8 +189,28 @@ export default function Playground() {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
 
+        const startTime = performance.now();
+
         // Helper to render one frame
-        const renderFrame = () => {
+        const renderFrame = (timestamp: number) => {
+          if (cancelled) return;
+
+          if (isAnimatingRef.current) {
+            const elapsed = (timestamp - startTime) / 1000; // time in seconds
+            // Orbit the light around the center of the box (278, 273)
+            const radius = 150;
+            const x = 278 + radius * Math.sin(elapsed);
+            const z = 280 + radius * Math.cos(elapsed);
+            lightPos.set([x, 450, z]);
+
+            // Rewrite the uniform buffer with updated light position
+            const uniformData = new Float32Array(16 + 4);
+            uniformData.set(mvpMatrix, 0);
+            uniformData.set(lightPos, 16);
+            device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+          }
+
+
           const encoder = device.createCommandEncoder();
           const pass = encoder.beginRenderPass({
             colorAttachments: [{
@@ -205,7 +241,7 @@ export default function Playground() {
         };
 
         // Render initial frame immediately
-        renderFrame();
+        renderFrame(0);
 
         // Measure FPS for performance warning
         const measureFPS = () => {
@@ -213,10 +249,10 @@ export default function Playground() {
           const startTime = performance.now();
           const duration = 2000; // Measure for 2 seconds
 
-          const renderLoop = () => {
+          const renderLoop = (timestamp : number) => {
             if (cancelled) return;
 
-            renderFrame();
+            renderFrame(timestamp);
 
             frames++;
             const elapsed = performance.now() - startTime;
@@ -230,6 +266,7 @@ export default function Playground() {
               if (fps < 10) {
                 setShowPerformanceWarning(true);
               }
+              requestAnimationFrame(renderLoop);
             }
           };
 
@@ -262,7 +299,7 @@ export default function Playground() {
       </p>
 
       <p>
-      This is what I'm currently working on. It might be a future experiment or a class assignment, who nose!
+      This is what I'm currently working on. It might be a future experiment or a class assignment, who nose...
       </p>
 
       {webgpuSupported ? (
@@ -273,6 +310,14 @@ export default function Playground() {
       ) : (
         <WebGPUWarning />
       )}
+
+      <input
+        type="checkbox"
+        id="animatingCheckbox"
+        checked={isAnimating}
+        onChange={(e) => setIsAnimating(e.target.checked)}
+      />
+      <label htmlFor="animatingCheckbox">Light animation</label>
 
 
 
