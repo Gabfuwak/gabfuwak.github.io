@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { createCornellBox } from '../../utils/mesh_gen';
-import { initWebGPU, initCamera, initScene } from '../../utils/webgpu';
+import { initWebGPU, initCamera, initScene, getCameraBasis } from '../../utils/webgpu';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 
@@ -75,11 +75,22 @@ export default function Playground() {
             const z = 280 + radius * Math.cos(elapsed);
             lightPos.set([x, 450, z]);
 
-            // Rewrite the uniform buffer with updated light position
+            // Update rasterizer uniform buffer with updated light position
             const uniformData = new Float32Array(16 + 4);
             uniformData.set(scene.mvp, 0);
             uniformData.set(lightPos, 16);
             device.queue.writeBuffer(scene.uniformBuffer, 0, uniformData);
+
+            // Update raytracer uniform buffer with updated light position
+            const basis = getCameraBasis(scene.camera);
+            const fovFactor = Math.tan(scene.camera.fov / 2);
+            const rayUniformData = new Float32Array(24);
+            rayUniformData.set([...scene.camera.position, fovFactor], 0);
+            rayUniformData.set([...basis.forward, scene.camera.aspect], 4);
+            rayUniformData.set([...basis.right, 0], 8);
+            rayUniformData.set([...basis.up, 0], 12);
+            rayUniformData.set([...lightPos, 0], 20);
+            device.queue.writeBuffer(scene.rayUniformBuffer, 0, rayUniformData);
           }
 
 

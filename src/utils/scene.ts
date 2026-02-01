@@ -1,4 +1,4 @@
-import { type Camera, getMVP } from './camera';
+import { type Camera, getMVP, getCameraBasis } from './camera';
 import { type Mesh} from './mesh_gen'
 import rasterShaderCode from '../shaders/assignment.wgsl?raw';
 import raytraceShaderCode from '../shaders/raytracing.wgsl?raw';
@@ -11,8 +11,11 @@ export interface Scene {
   colorBuffer: GPUBuffer;
   normalBuffer: GPUBuffer;
 
-  // Shared uniforms (MVP, lights)
+  // Rasterizer uniforms (MVP, lights)
   uniformBuffer: GPUBuffer;
+
+  // Ray tracer uniforms (camera basis, fov, lights)
+  rayUniformBuffer: GPUBuffer;
 
   // Rasterizer pipeline objects
   rasterPipeline: GPURenderPipeline;
@@ -93,7 +96,7 @@ function createRasterPipeline(
 function createRayTracePipeline(
   device: GPUDevice,
   canvasFormat: GPUTextureFormat,
-  uniformBuffer: GPUBuffer,
+  rayUniformBuffer: GPUBuffer,
   vertexBuffer: GPUBuffer,
   indexBuffer: GPUBuffer,
   colorBuffer: GPUBuffer,
@@ -150,7 +153,7 @@ function createRayTracePipeline(
   const rayBindGroup = device.createBindGroup({
     layout: bindGroupLayout,
     entries: [
-      { binding: 0, resource: { buffer: uniformBuffer } },
+      { binding: 0, resource: { buffer: rayUniformBuffer } },
       { binding: 1, resource: { buffer: vertexBuffer } },
       { binding: 2, resource: { buffer: indexBuffer } },
       { binding: 3, resource: { buffer: colorBuffer } },
@@ -238,7 +241,7 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
   device.queue.writeBuffer(colorBuffer, 0, vertexColors);
   device.queue.writeBuffer(normalsBuffer, 0, vertexNormals);
 
-  // Combine MVP and lightPos into a single uniform buffer
+  // Rasterizer uniform buffer: MVP + lightPos
   const uniformData = new Float32Array(16 + 4); // 16 floats for mat4x4, 4 for vec3 (padded)
   uniformData.set(mvpMatrix, 0);  // First 16 floats
   uniformData.set(lightPos, 16);   // Next 3 floats (vec3 needs 16-byte alignment)
@@ -249,6 +252,24 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
   });
 
   device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+
+  // Raytracer uniform buffer: camera basis + fov + aspect + lightPos
+  const basis = getCameraBasis(camera);
+  const fovFactor = Math.tan(camera.fov / 2);
+
+  const rayUniformData = new Float32Array(24); // 96 bytes / 4 = 24 floats
+  rayUniformData.set([...camera.position, fovFactor], 0);     // camera_pos + fov_factor
+  rayUniformData.set([...basis.forward, camera.aspect], 4);   // camera_forward + aspect_ratio
+  rayUniformData.set([...basis.right, 0], 8);                 // camera_right + padding
+  rayUniformData.set([...basis.up, 0], 12);                   // camera_up + padding
+  rayUniformData.set([...lightPos, 0], 20);                   // lightPos + padding
+
+  const rayUniformBuffer = device.createBuffer({
+    size: 96, // camera_pos(16) + forward(16) + right(16) + up(16) + fov+aspect(8) + padding(8) + lightPos(16)
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  device.queue.writeBuffer(rayUniformBuffer, 0, rayUniformData);
 
   const vertexBufferLayout: GPUVertexBufferLayout = {
     arrayStride: 12,
@@ -287,7 +308,7 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
 
   const rayTrace = createRayTracePipeline(device,
                                         canvasFormat,
-                                        uniformBuffer,
+                                        rayUniformBuffer,
                                         vertexBuffer,
                                         indexBuffer,
                                         colorBuffer,
@@ -300,6 +321,7 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
     colorBuffer: colorBuffer,
     normalBuffer: normalsBuffer,
     uniformBuffer: uniformBuffer,
+    rayUniformBuffer: rayUniformBuffer,
     rasterPipeline: raster.pipeline,
     rasterBindGroup: raster.bindGroup,
     rayPipeline: rayTrace.pipeline,

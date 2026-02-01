@@ -148,6 +148,35 @@ export function getMVP(camera: Camera): Float32Array {
   return mvpMatrix;
 }
 
+export function getCameraBasis(camera: Camera): {
+  forward: Float32Array,
+  right: Float32Array,
+  up: Float32Array
+} {
+  // Forward: normalize(target - position)
+  const fx = camera.target[0] - camera.position[0];
+  const fy = camera.target[1] - camera.position[1];
+  const fz = camera.target[2] - camera.position[2];
+  const flen = Math.hypot(fx, fy, fz);
+  const forward = new Float32Array([fx / flen, fy / flen, fz / flen]);
+
+  // Right: normalize(cross(forward, up))
+  const rx = forward[1] * camera.up[2] - forward[2] * camera.up[1];
+  const ry = forward[2] * camera.up[0] - forward[0] * camera.up[2];
+  const rz = forward[0] * camera.up[1] - forward[1] * camera.up[0];
+  const rlen = Math.hypot(rx, ry, rz);
+  const right = new Float32Array([rx / rlen, ry / rlen, rz / rlen]);
+
+  // Up: normalize(cross(right, forward))
+  const ux = right[1] * forward[2] - right[2] * forward[1];
+  const uy = right[2] * forward[0] - right[0] * forward[2];
+  const uz = right[0] * forward[1] - right[1] * forward[0];
+  const ulen = Math.hypot(ux, uy, uz);
+  const up = new Float32Array([ux / ulen, uy / ulen, uz / ulen]);
+
+  return { forward, right, up };
+}
+
 // Simple pinhole camera interface
 export interface Camera {
   position: [number, number, number];
