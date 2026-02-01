@@ -28,3 +28,4 @@ export async function initWebGPU(canvas: HTMLCanvasElement) {
 
 // Re-export camera utilities
 export { initCamera, getMVP, type Camera } from './camera';
+export { initScene, type Scene } from './scene';
