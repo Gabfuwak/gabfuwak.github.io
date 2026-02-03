@@ -168,7 +168,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 
     if(is_shadow && hit_data.t < length(uniforms.lightPos - world_pos)){ // we don't use hit data here so it's jsut a placeholder
-      return vec4f(color * lambertFactor * 0.1, 1.0); // 0.1 is a parameter, lower = stronger shadow
+      return vec4f(color * lambertFactor * 0.3, 1.0); // 0.1 is a parameter, lower = stronger shadow
     }
     else{
       return vec4f(color * lambertFactor, 1.0);
