@@ -130,22 +130,22 @@ function createRayTracePipeline(
         {
           binding: 1,
           visibility: GPUShaderStage.FRAGMENT,
-          buffer: { type: "storage", access: "read-only"},
+          buffer: { type: "read-only-storage" },
         },
         {
           binding: 2,
           visibility: GPUShaderStage.FRAGMENT,
-          buffer: { type: "storage", access: "read-only"},
+          buffer: { type: "read-only-storage" },
         },
         {
           binding: 3,
           visibility: GPUShaderStage.FRAGMENT,
-          buffer: { type: "storage", access: "read-only" },
+          buffer: { type: "read-only-storage" },
         },
         {
           binding: 4,
           visibility: GPUShaderStage.FRAGMENT,
-          buffer: { type: "storage", access: "read-only"},
+          buffer: { type: "read-only-storage" },
         },
       ] as GPUBindGroupLayoutEntry[],
     });
@@ -257,15 +257,15 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
   const basis = getCameraBasis(camera);
   const fovFactor = Math.tan(camera.fov / 2);
 
-  const rayUniformData = new Float32Array(24); // 96 bytes / 4 = 24 floats
+  const rayUniformData = new Float32Array(20); // 80 bytes / 4 = 20 floats
   rayUniformData.set([...camera.position, fovFactor], 0);     // camera_pos + fov_factor
   rayUniformData.set([...basis.forward, camera.aspect], 4);   // camera_forward + aspect_ratio
   rayUniformData.set([...basis.right, 0], 8);                 // camera_right + padding
   rayUniformData.set([...basis.up, 0], 12);                   // camera_up + padding
-  rayUniformData.set([...lightPos, 0], 20);                   // lightPos + padding
+  rayUniformData.set([...lightPos, 0], 16);                   // lightPos + padding
 
   const rayUniformBuffer = device.createBuffer({
-    size: 96, // camera_pos(16) + forward(16) + right(16) + up(16) + fov+aspect(8) + padding(8) + lightPos(16)
+    size: 80, // camera_pos(16) + forward(16) + right(16) + up(16) + lightPos(16)
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 

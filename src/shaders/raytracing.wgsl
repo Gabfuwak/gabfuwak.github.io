@@ -16,14 +16,34 @@ struct RayUniforms {
   _pad2: f32,               // unused padding
 };
 
+
 struct Ray {
   origin: vec3<f32>,
   direction: vec3<f32>
 };
 
+struct Hit {
+  triIndex: u32,
+  barycentricCoords: vec3<f32>,
+  t: f32
+};
 
 @group(0) @binding(0)
 var<uniform> uniforms : RayUniforms;
+
+@group(0) @binding(1)
+var<storage, read> vertices : array<f32>;  // positions
+
+@group(0) @binding(2)
+var<storage, read> indices : array<u32>;     // triangle indices
+
+@group(0) @binding(3)
+var<storage, read> colors : array<f32>;  // colors
+
+@group(0) @binding(4)
+var<storage, read> normals : array<f32>;  // normals
+
+
 
 fn ray_at(screenCoord: vec2<f32>) -> Ray {
   var output: Ray;
@@ -41,6 +61,60 @@ fn ray_at(screenCoord: vec2<f32>) -> Ray {
   return output;
 }
 
+
+fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
+  var closest_t = 1e30;
+  var found_hit = false;
+
+  let num_triangles = arrayLength(&indices) / 3;
+  for (var tri_idx = 0u; tri_idx < num_triangles; tri_idx++) {
+    let i0 = indices[tri_idx * 3 + 0];
+    let i1 = indices[tri_idx * 3 + 1];
+    let i2 = indices[tri_idx * 3 + 2];
+
+    let v0 = vec3f(vertices[i0 * 3 + 0], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
+    let v1 = vec3f(vertices[i1 * 3 + 0], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
+    let v2 = vec3f(vertices[i2 * 3 + 0], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
+
+    let e1 = v1 - v0;
+    let e2 = v2 - v0;
+
+    let P = cross(ray.direction, e2);
+    let det = dot(e1, P);
+
+    if (abs(det) < 0.00001) {
+      continue;
+    }
+
+    let inv_det = 1.0 / det;
+    let T = ray.origin - v0;
+    let u = dot(T, P) * inv_det;
+
+    if (u < 0.0 || u > 1.0) {
+      continue;
+    }
+
+    let Q = cross(T, e1);
+    let v = dot(ray.direction, Q) * inv_det;
+
+    if (v < 0.0 || u + v > 1.0) {
+      continue;
+    }
+    
+    let t = dot(e2, Q) * inv_det;
+    
+    if (t > 0.00001 && t < closest_t) {
+      closest_t = t;
+      found_hit = true;
+      (*hit).triIndex = tri_idx;
+      (*hit).barycentricCoords = vec3(1.0 - u - v, u, v);
+      (*hit).t = closest_t;
+    }
+  }
+  
+  return found_hit;
+}
+
 @vertex
 fn vertexMain(@location(0) pos: vec2f) -> VertexOutput {
   var output: VertexOutput;
@@ -52,8 +126,55 @@ fn vertexMain(@location(0) pos: vec2f) -> VertexOutput {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   // debug viz for the ray_at function
-  var output: Ray = ray_at(input.screen_pos);
-  var c: f32 = dot(output.direction, uniforms.camera_forward);
-  let difference = (1.0 - c) * 10.0;
-  return vec4f(difference, difference, difference, 1.0);
+  var curr_ray: Ray = ray_at(input.screen_pos);
+  var output: vec4f = vec4f(0.0, 0.0, 0.0, 1.0);
+  var hit_data: Hit;
+  if(rayTrace(curr_ray, &hit_data)){
+
+    let i0 = indices[hit_data.triIndex * 3 + 0];
+    let i1 = indices[hit_data.triIndex * 3 + 1];
+    let i2 = indices[hit_data.triIndex * 3 + 2];
+
+    let c0 = vec3f(colors[i0 * 3 + 0], colors[i0 * 3 + 1], colors[i0 * 3 + 2]);
+    let c1 = vec3f(colors[i1 * 3 + 0], colors[i1 * 3 + 1], colors[i1 * 3 + 2]);
+    let c2 = vec3f(colors[i2 * 3 + 0], colors[i2 * 3 + 1], colors[i2 * 3 + 2]);
+
+
+    let n0 = vec3f(normals[i0 * 3 + 0], normals[i0 * 3 + 1], normals[i0 * 3 + 2]);
+    let n1 = vec3f(normals[i1 * 3 + 0], normals[i1 * 3 + 1], normals[i1 * 3 + 2]);
+    let n2 = vec3f(normals[i2 * 3 + 0], normals[i2 * 3 + 1], normals[i2 * 3 + 2]);
+
+    let p0 = vec3f(vertices[i0 * 3 + 0], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
+    let p1 = vec3f(vertices[i1 * 3 + 0], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
+    let p2 = vec3f(vertices[i2 * 3 + 0], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
+
+
+    let bary = hit_data.barycentricCoords;
+    let color = bary.x * c0 + bary.y * c1 + bary.z * c2;
+    let normal = normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
+    let world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
+
+
+    let lightDir: vec3f =  normalize(uniforms.lightPos - world_pos);
+    let lambertFactor: f32 = max(0.0, dot(lightDir, normal));
+
+
+    var shadow_ray: Ray;
+
+    shadow_ray.direction = lightDir;
+    shadow_ray.origin = world_pos + normal * 0.001;
+
+    let is_shadow = rayTrace(shadow_ray, &hit_data);
+
+
+    if(is_shadow && hit_data.t < length(uniforms.lightPos - world_pos)){ // we don't use hit data here so it's jsut a placeholder
+      return vec4f(color * lambertFactor * 0.1, 1.0); // 0.1 is a parameter, lower = stronger shadow
+    }
+    else{
+      return vec4f(color * lambertFactor, 1.0);
+    }
+
+  }
+
+  return output;
 }
