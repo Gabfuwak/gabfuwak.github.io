@@ -12,8 +12,11 @@ struct RayUniforms {
   _pad0: f32,               // unused padding
   camera_up: vec3f,
   _pad1: f32,               // unused padding
-  lightPos: vec3f,
-  _pad2: f32,               // unused padding
+  nbLights: f32,
+  _pad2: u32,
+  _pad3: u32,
+  _pad4: u32,
+  lights: array<f32, 12>,
 };
 
 
@@ -127,8 +130,8 @@ fn vertexMain(@location(0) pos: vec2f) -> VertexOutput {
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   // debug viz for the ray_at function
   var curr_ray: Ray = ray_at(input.screen_pos);
-  var output: vec4f = vec4f(0.0, 0.0, 0.0, 1.0);
   var hit_data: Hit;
+  var output_color = vec3f(0.0);
   if(rayTrace(curr_ray, &hit_data)){
 
     let i0 = indices[hit_data.triIndex * 3 + 0];
@@ -155,26 +158,35 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
 
 
-    let lightDir: vec3f =  normalize(uniforms.lightPos - world_pos);
-    let lambertFactor: f32 = max(0.0, dot(lightDir, normal));
+
+    for(var i = 0u; i < u32(uniforms.nbLights); i++){
+      let lightPos = vec3f(
+        uniforms.lights[i * 3 + 0],
+        uniforms.lights[i * 3 + 1],
+        uniforms.lights[i * 3 + 2]
+      );
+      let lightDir = normalize(lightPos - world_pos);
+      let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
 
 
-    var shadow_ray: Ray;
+      var shadow_ray: Ray;
 
-    shadow_ray.direction = lightDir;
-    shadow_ray.origin = world_pos + normal * 0.001;
+      shadow_ray.direction = lightDir;
+      shadow_ray.origin = world_pos + normal * 0.001;
 
-    let is_shadow = rayTrace(shadow_ray, &hit_data);
+      let is_shadow = rayTrace(shadow_ray, &hit_data);
 
 
-    if(is_shadow && hit_data.t < length(uniforms.lightPos - world_pos)){ // we don't use hit data here so it's jsut a placeholder
-      return vec4f(color * lambertFactor * 0.3, 1.0); // 0.1 is a parameter, lower = stronger shadow
+      if(is_shadow && hit_data.t < length(lightPos - world_pos)){ // we don't use hit data here so it's jsut a placeholder
+        // factor is a parameter, lower = stronger shadow
+        output_color += (color * lambertFactor * 0.3);
+      }
+      else{
+        output_color += (color * lambertFactor);
+      }
     }
-    else{
-      return vec4f(color * lambertFactor, 1.0);
-    }
-
+    output_color /= uniforms.nbLights;
   }
 
-  return output;
+  return vec4f(output_color, 1.0);
 }

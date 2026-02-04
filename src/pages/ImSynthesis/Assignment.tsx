@@ -48,11 +48,15 @@ export default function Playground() {
                                   0.1, // near
                                   2000, // far
                                  );
-        const lightPos = new Float32Array([278, 530, 280]);
+        const lights = new Float32Array(
+          [
+            278, 530, 280,
+            400, 530, 150,
+          ]);
 
         const cornellbox = createCornellBox();
 
-        const scene = initScene(device, camera, cornellbox, lightPos)
+        const scene = initScene(device, camera, cornellbox, lights)
 
 
         const depthTexture = device.createTexture({
@@ -73,23 +77,31 @@ export default function Playground() {
             const radius = 250;
             const x = 278 + radius * Math.sin(elapsed);
             const z = 280 + radius * Math.cos(elapsed);
-            lightPos.set([x, 300, z]);
+
+            const x2 = 278 + radius * Math.sin(elapsed*1.5);
+            const z2 = 280 + radius * Math.cos(elapsed*1.5);
+            lights.set(
+              [x,  300, z,
+               x2, 400, z2]);
 
             // Update rasterizer uniform buffer with updated light position
-            const uniformData = new Float32Array(16 + 4);
+            const MAX_LIGHTS = 4;
+            const uniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 3);
             uniformData.set(scene.mvp, 0);
-            uniformData.set(lightPos, 16);
+            uniformData[16] = lights.length / 3;
+            uniformData.set(lights, 20);
             device.queue.writeBuffer(scene.uniformBuffer, 0, uniformData);
 
             // Update raytracer uniform buffer with updated light position
             const basis = getCameraBasis(scene.camera);
             const fovFactor = Math.tan(scene.camera.fov / 2);
-            const rayUniformData = new Float32Array(20);
+            const rayUniformData = new Float32Array(20 + MAX_LIGHTS * 3);
             rayUniformData.set([...scene.camera.position, fovFactor], 0);
             rayUniformData.set([...basis.forward, scene.camera.aspect], 4);
             rayUniformData.set([...basis.right, 0], 8);
             rayUniformData.set([...basis.up, 0], 12);
-            rayUniformData.set([...lightPos, 0], 16);
+            rayUniformData[16] = lights.length / 3;
+            rayUniformData.set(lights, 20);
             device.queue.writeBuffer(scene.rayUniformBuffer, 0, rayUniformData);
           }
 

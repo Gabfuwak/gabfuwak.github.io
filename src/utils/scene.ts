@@ -27,7 +27,7 @@ export interface Scene {
   quadVertexBuffer: GPUBuffer;  // just the full-screen quad
 
   // CPU-side state for animation
-  lights: { pos: Float32Array, color: Float32Array }[];
+  lights: Float32Array;
   camera: Camera;
   mvp: Float32Array;
 }
@@ -201,7 +201,7 @@ function createRayTracePipeline(
   return { pipeline: raytracePipeline, bindGroup: rayBindGroup, quadVertexBuffer: quadVertexBuffer};
 }
 
-export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPos: Float32Array) : Scene {
+export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lights: Float32Array) : Scene {
 
   const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
@@ -241,13 +241,18 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
   device.queue.writeBuffer(colorBuffer, 0, vertexColors);
   device.queue.writeBuffer(normalsBuffer, 0, vertexNormals);
 
-  // Rasterizer uniform buffer: MVP + lightPos
-  const uniformData = new Float32Array(16 + 4); // 16 floats for mat4x4, 4 for vec3 (padded)
-  uniformData.set(mvpMatrix, 0);  // First 16 floats
-  uniformData.set(lightPos, 16);   // Next 3 floats (vec3 needs 16-byte alignment)
+  // Rasterizer uniform buffer: MVP + lights
+  const MAX_LIGHTS = 4;
+  const uniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 3);
+  uniformData.set(mvpMatrix, 0);
+  uniformData[16] = lights.length / 3; // numLights
+  uniformData.set(lights, 20);
+
+  console.log('lights.length:', lights.length, 'nbLights:', lights.length / 3);
+  console.log('uniformData length:', uniformData.length, 'bytes:', uniformData.length * 4);
 
   const uniformBuffer = device.createBuffer({
-    size: 80, // 64 bytes (mat4x4) + 16 bytes (vec3 with padding)
+    size: 64 + 16 + 12 * MAX_LIGHTS,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -257,15 +262,16 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
   const basis = getCameraBasis(camera);
   const fovFactor = Math.tan(camera.fov / 2);
 
-  const rayUniformData = new Float32Array(20); // 80 bytes / 4 = 20 floats
+  const rayUniformData = new Float32Array(20 + lights.length); // 80 bytes / 4 = 20 floats
   rayUniformData.set([...camera.position, fovFactor], 0);     // camera_pos + fov_factor
   rayUniformData.set([...basis.forward, camera.aspect], 4);   // camera_forward + aspect_ratio
   rayUniformData.set([...basis.right, 0], 8);                 // camera_right + padding
   rayUniformData.set([...basis.up, 0], 12);                   // camera_up + padding
-  rayUniformData.set([...lightPos, 0], 16);                   // lightPos + padding
+  rayUniformData[16] = lights.length / 3;                     // number of lights
+  rayUniformData.set(lights, 20);                             // lights data
 
   const rayUniformBuffer = device.createBuffer({
-    size: 80, // camera_pos(16) + forward(16) + right(16) + up(16) + lightPos(16)
+    size: 64 + 16 + (12 * 4), // camera_pos(16) + forward(16) + right(16) + up(16) + lightNb(4) + padding(12) + 4 lights (12 * 4) = 128 bytes
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -328,7 +334,7 @@ export function initScene(device: GPUDevice, camera: Camera, mesh: Mesh, lightPo
     rayBindGroup: rayTrace.bindGroup,
     quadVertexBuffer: rayTrace.quadVertexBuffer,
     indexCount : indexData.length,
-    lights: [{pos: lightPos, color: new Float32Array([1.0, 1.0, 1.0])}],
+    lights: lights,
     camera: camera,
     mvp: mvpMatrix,
   };
