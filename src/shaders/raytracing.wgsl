@@ -3,6 +3,13 @@ struct VertexOutput {
   @location(0) screen_pos: vec2f,
 };
 
+struct PointLight{
+  position: vec3<f32>,
+  _pad0: f32 // will be intensity later
+  // will add color later
+  // will be an other padding later
+}
+
 struct RayUniforms {
   camera_pos: vec3f,
   fov_factor: f32,          // uses camera_pos padding slot
@@ -13,10 +20,7 @@ struct RayUniforms {
   camera_up: vec3f,
   _pad1: f32,               // unused padding
   nbLights: f32,
-  _pad2: u32,
-  _pad3: u32,
-  _pad4: u32,
-  lights: array<f32, 12>,
+  lights: array<PointLight, 4>,
 };
 
 
@@ -30,6 +34,7 @@ struct Hit {
   barycentricCoords: vec3<f32>,
   t: f32
 };
+
 
 @group(0) @binding(0)
 var<uniform> uniforms : RayUniforms;
@@ -160,12 +165,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 
     for(var i = 0u; i < u32(uniforms.nbLights); i++){
-      let lightPos = vec3f(
-        uniforms.lights[i * 3 + 0],
-        uniforms.lights[i * 3 + 1],
-        uniforms.lights[i * 3 + 2]
-      );
-      let lightDir = normalize(lightPos - world_pos);
+      let lightDir = normalize(uniforms.lights[i].position - world_pos);
       let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
 
 
@@ -177,7 +177,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
       let is_shadow = rayTrace(shadow_ray, &hit_data);
 
 
-      if(is_shadow && hit_data.t < length(lightPos - world_pos)){ // we don't use hit data here so it's jsut a placeholder
+      if(is_shadow && hit_data.t < length(uniforms.lights[i].position - world_pos)){ // we don't use hit data here so it's jsut a placeholder
         // factor is a parameter, lower = stronger shadow
         output_color += (color * lambertFactor * 0.3);
       }

@@ -131,7 +131,54 @@ export function createBox(
         return mesh;
       }
 
-function merge_meshes(meshes: Mesh[]): Mesh {
+// Apply a 4x4 matrix to a mesh, returning a new transformed mesh
+export function transformMesh(mesh: Mesh, m: Float32Array): Mesh {
+  const newPos = new Float32Array(mesh.positions.length);
+  const newNorm = new Float32Array(mesh.normals.length);
+  
+  // Transform positions (w=1)
+  for (let i = 0; i < mesh.positions.length; i += 3) {
+    const x = mesh.positions[i];
+    const y = mesh.positions[i+1];
+    const z = mesh.positions[i+2];
+    
+    newPos[i]   = m[0]*x + m[4]*y + m[8]*z + m[12];
+    newPos[i+1] = m[1]*x + m[5]*y + m[9]*z + m[13];
+    newPos[i+2] = m[2]*x + m[6]*y + m[10]*z + m[14];
+  }
+  
+  // Transform normals (upper 3x3 only, then normalize)
+  // Note: This assumes no non-uniform scale. If you have scale, 
+  // use inverse-transpose of upper 3x3 instead.
+  for (let i = 0; i < mesh.normals.length; i += 3) {
+    const nx = mesh.normals[i];
+    const ny = mesh.normals[i+1];
+    const nz = mesh.normals[i+2];
+    
+    let x = m[0]*nx + m[4]*ny + m[8]*nz;
+    let y = m[1]*nx + m[5]*ny + m[9]*nz;
+    let z = m[2]*nx + m[6]*ny + m[10]*nz;
+    
+    const len = Math.sqrt(x*x + y*y + z*z);
+    if (len > 0.0001) {
+      x /= len; y /= len; z /= len;
+    }
+    
+    newNorm[i] = x;
+    newNorm[i+1] = y;
+    newNorm[i+2] = z;
+  }
+  
+  return {
+    positions: newPos,
+    normals: newNorm,
+    colors: mesh.colors, // Colors don't transform
+    uvs: mesh.uvs,
+    indices: mesh.indices
+  };
+} 
+
+export function merge_meshes(meshes: Mesh[]): Mesh {
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
@@ -162,7 +209,7 @@ function merge_meshes(meshes: Mesh[]): Mesh {
   };
 }
 
-function create_quad(
+export function create_quad(
   a: number[],
   b: number[],
   c: number[],
