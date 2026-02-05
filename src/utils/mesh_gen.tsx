@@ -10,7 +10,7 @@ export function createSphere(
   radius: number,
   latitudeRes: number,
   longitudeRes: number,
-  color: [number, number, number, number] = [1.0, 1.0, 1.0, 1.0]
+  color: [number, number, number] = [1.0, 1.0, 1.0]
 ): Mesh {
         const positions: number[] = [];
         const normals: number[] = [];
@@ -46,8 +46,8 @@ export function createSphere(
             const second = first + longitudeRes + 1;
 
             indices.push(
-              first, second, first + 1,
-              second, second + 1, first + 1
+              first, first + 1, second,
+              second, first + 1, second + 1
             );
           }
         }
