@@ -1,6 +1,8 @@
 struct PointLight{
   position: vec3<f32>,
-  _pad0: f32 // will be intensity later
+  _pad0: f32, // will be intensity later
+  color: vec3<f32>,
+  _pad1: f32,
   // will add color later
   // will be an other padding later
 }
@@ -68,7 +70,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   for(var i = 0u; i < u32(uniforms.nbLights); i++){
     let lightDir = normalize(uniforms.lights[i].position - input.worldPos.xyz);
     let lambertFactor = max(0.0, dot(lightDir, normalize(input.normal.xyz)));
-    output_color += baseColor * lambertFactor;
+    output_color += baseColor * lambertFactor * uniforms.lights[i].color;
   }
 
   output_color /= f32(uniforms.nbLights);

@@ -23,8 +23,8 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
   );
 
   const lights: Light[] = [
-    { position: new Float32Array([278.0, 530.0, 280.0]), color: new Float32Array([1, 1, 1, 1]) },
-    { position: new Float32Array([400, 530, 150]),        color: new Float32Array([1, 1, 1, 1]) },
+    { position: new Float32Array([278.0, 530.0, 280.0]), color: new Float32Array([1, 0, 0]) },
+    { position: new Float32Array([400, 530, 150]),        color: new Float32Array([0, 0, 1]) },
   ];
 
   const whiteMaterial: Material = { diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]) };
@@ -174,14 +174,15 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   const MAX_LIGHTS = 4;
   const MAX_MATERIALS = 16;
-  const UNIFORM_LENGTH = 16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4;
+  const UNIFORM_LENGTH = 16 + 4 + MAX_LIGHTS * 8 + 4 + MAX_MATERIALS * 4;
 
   const packLightsAndMaterials = (out: Float32Array) => {
     out[16] = scene.lights.length;
     for (let i = 0; i < scene.lights.length; i++) {
-      out.set(scene.lights[i].position, 20 + i * 4);
+      out.set(scene.lights[i].position, 20 + i * 8);
+      out.set(scene.lights[i].color, 24 + i * 8);
     }
-    const matOffset = 20 + MAX_LIGHTS * 4;
+    const matOffset = 20 + MAX_LIGHTS * 8;
     out[matOffset] = materials.length;
     for (let i = 0; i < materials.length; i++) {
       out.set(materials[i].diffuseAlbedo, matOffset + 4 + i * 4);
