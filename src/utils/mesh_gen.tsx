@@ -67,7 +67,7 @@ export function createBox(
   width: number,
   height: number,
   length: number,
-  color: [number, number, number, number] = [1.0, 1.0, 1.0, 1.0]
+  color: [number, number, number] = [1.0, 1.0, 1.0]
 ): Mesh {
         const w = width/2.0;
         const h = height/2.0;
@@ -341,6 +341,19 @@ export function createCornellBox(): Mesh {
     red
   );
 
+  return merge_meshes([
+    floor,
+    ceiling,
+    lightQuad,
+    backWall,
+    rightWall,
+    leftWall,
+  ]);
+}
+
+export function createCornellObjects(): Mesh {
+  const white: [number, number, number] = [1.0, 1.0, 1.0];
+
   // Short block (5 faces)
   const shortBlockTop = create_quad(
     [130.0, 165.0, 65.0],
@@ -424,12 +437,6 @@ export function createCornellBox(): Mesh {
   );
 
   return merge_meshes([
-    floor,
-    ceiling,
-    lightQuad,
-    backWall,
-    rightWall,
-    leftWall,
     shortBlockTop,
     shortBlockFront,
     shortBlockRight,

@@ -10,7 +10,9 @@ export interface Scene{
 
 export interface SceneObject{
   mesh: Mesh,
+  material: Material,
   transform: Float32Array, // mat4x4
+  label?: string,
 }
 
 export interface Light{
@@ -18,16 +20,22 @@ export interface Light{
   color: Float32Array, // vec3f
 }
 
+export interface Material{
+  diffuseAlbedo: Float32Array, // vec3f
+}
+
 export interface MergedScene {
-  // Baked world-space geometry (what you upload to GPU)
+  // Baked world-space geometry
   positions: Float32Array;
   indices: Uint32Array;
-  colors: Float32Array;
   normals: Float32Array;
-  
+
   // Metadata for materials/object identity
   objectIds: Uint32Array;
-  
+
+  // Materials array (one per object)
+  materials: Material[];
+
   // Bookkeeping (kept CPU-side)
   ranges: Array<Range>;
 }
@@ -43,6 +51,7 @@ export interface Range {
 export function extractSceneData(scene: Scene) : MergedScene {
   let raw_meshes = [];
   let objectIds = [];
+  let materials: Material[] = [];
   let object_id_counter = 0;
   let offset_counter = 0;
   let ranges: Array<Range> = [];
@@ -52,6 +61,7 @@ export function extractSceneData(scene: Scene) : MergedScene {
 
     let nb_vtx = scene_object.mesh.positions.length / 3;
     objectIds.push( ... new Array(nb_vtx).fill(object_id_counter));
+    materials.push(scene_object.material);
     ranges.push({
         objectId: object_id_counter,
         indexOffset: offset_counter,
@@ -65,9 +75,9 @@ export function extractSceneData(scene: Scene) : MergedScene {
   return{
     positions: merged_mesh.positions,
     indices: merged_mesh.indices,
-    colors: merged_mesh.colors,
     normals: merged_mesh.normals,
     objectIds: new Uint32Array(objectIds),
+    materials: materials,
     ranges: ranges,
   };
 }

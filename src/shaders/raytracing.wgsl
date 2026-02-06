@@ -10,6 +10,11 @@ struct PointLight{
   // will be an other padding later
 }
 
+struct Material{
+  baseColor: vec3<f32>,
+  _pad0: f32
+}
+
 struct RayUniforms {
   camera_pos: vec3f,
   fov_factor: f32,          // uses camera_pos padding slot
@@ -20,7 +25,15 @@ struct RayUniforms {
   camera_up: vec3f,
   _pad1: f32,               // unused padding
   nbLights: f32,
+  _pad2: f32,
+  _pad3: f32,
+  _pad4: f32,
   lights: array<PointLight, 4>,
+  nbMaterials: f32,
+  _pad5: f32,
+  _pad6: f32,
+  _pad7: f32,
+  materials: array<Material, 16>,
 };
 
 
@@ -46,7 +59,7 @@ var<storage, read> vertices : array<f32>;  // positions
 var<storage, read> indices : array<u32>;     // triangle indices
 
 @group(0) @binding(3)
-var<storage, read> colors : array<f32>;  // colors
+var<storage, read> objectIds : array<u32>;  // object IDs per vertex
 
 @group(0) @binding(4)
 var<storage, read> normals : array<f32>;  // normals
@@ -143,10 +156,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let i1 = indices[hit_data.triIndex * 3 + 1];
     let i2 = indices[hit_data.triIndex * 3 + 2];
 
-    let c0 = vec3f(colors[i0 * 3 + 0], colors[i0 * 3 + 1], colors[i0 * 3 + 2]);
-    let c1 = vec3f(colors[i1 * 3 + 0], colors[i1 * 3 + 1], colors[i1 * 3 + 2]);
-    let c2 = vec3f(colors[i2 * 3 + 0], colors[i2 * 3 + 1], colors[i2 * 3 + 2]);
-
+    // Get objectId (should be same for all vertices of a triangle)
+    let objectId = objectIds[i0];
+    let material = uniforms.materials[objectId];
+    let color = material.baseColor;
 
     let n0 = vec3f(normals[i0 * 3 + 0], normals[i0 * 3 + 1], normals[i0 * 3 + 2]);
     let n1 = vec3f(normals[i1 * 3 + 0], normals[i1 * 3 + 1], normals[i1 * 3 + 2]);
@@ -158,7 +171,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 
     let bary = hit_data.barycentricCoords;
-    let color = bary.x * c0 + bary.y * c1 + bary.z * c2;
     let normal = normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
     let world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
 

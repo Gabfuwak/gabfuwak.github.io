@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
-import { createCornellBox } from '../../utils/mesh_gen';
+import { createSphere, create_quad } from '../../utils/mesh_gen';
 import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP} from '../../utils/webgpu';
-import { type Scene, type Light} from '../../utils/scene';
+import { type Scene, type Light, type Material} from '../../utils/scene';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 import rasterShaderCode from '../../shaders/assignment.wgsl?raw';
@@ -23,7 +23,7 @@ export default function Playground() {
     canvasFormat: GPUTextureFormat,
     uniformBuffer: GPUBuffer,
     vertexBufferLayout: GPUVertexBufferLayout,
-    vertexColorBufferLayout: GPUVertexBufferLayout,
+    objectIdBufferLayout: GPUVertexBufferLayout,
     vertexNormalsBufferLayout: GPUVertexBufferLayout,
   ): { pipeline: GPURenderPipeline, bindGroup: GPUBindGroup } {
 
@@ -56,7 +56,7 @@ export default function Playground() {
       vertex: {
         module: rasterShaderModule,
         entryPoint: "vertexMain",
-        buffers: [vertexBufferLayout, vertexColorBufferLayout, vertexNormalsBufferLayout]
+        buffers: [vertexBufferLayout, objectIdBufferLayout, vertexNormalsBufferLayout]
       },
       fragment: {
         module: rasterShaderModule,
@@ -86,7 +86,7 @@ export default function Playground() {
     rayUniformBuffer: GPUBuffer,
     vertexBuffer: GPUBuffer,
     indexBuffer: GPUBuffer,
-    colorBuffer: GPUBuffer,
+    objectIdBuffer: GPUBuffer,
     normalBuffer: GPUBuffer,
   ): { pipeline: GPURenderPipeline, bindGroup: GPUBindGroup, quadVertexBuffer: GPUBuffer} {
 
@@ -143,7 +143,7 @@ export default function Playground() {
         { binding: 0, resource: { buffer: rayUniformBuffer } },
         { binding: 1, resource: { buffer: vertexBuffer } },
         { binding: 2, resource: { buffer: indexBuffer } },
-        { binding: 3, resource: { buffer: colorBuffer } },
+        { binding: 3, resource: { buffer: objectIdBuffer } },
         { binding: 4, resource: { buffer: normalBuffer } },
       ],
     });
@@ -237,13 +237,117 @@ export default function Playground() {
         ];
             
 
-        const scene_objects = [{
-          mesh: createCornellBox(),
-          transform: new Float32Array ([1, 0, 0, 0,  // no transform
-                                        0, 1, 0, 0,
-                                        0, 0, 1, 0,
-                                        0, 0, 0, 1])
-        }];
+        // Define materials
+        const whiteMaterial: Material = { diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]) };
+        const redMaterial: Material = { diffuseAlbedo: new Float32Array([0.65, 0.05, 0.05]) };
+        const greenMaterial: Material = { diffuseAlbedo: new Float32Array([0.12, 0.45, 0.15]) };
+
+        const identityTransform = new Float32Array([1, 0, 0, 0,
+                                                     0, 1, 0, 0,
+                                                     0, 0, 1, 0,
+                                                     0, 0, 0, 1]);
+
+        const scene_objects = [
+          // Cornell Box - Floor
+          {
+            mesh: create_quad(
+              [552.8, 0.0, 0.0],
+              [0.0, 0.0, 0.0],
+              [0.0, 0.0, 559.2],
+              [549.6, 0.0, 559.2],
+              [1.0, 1.0, 1.0]
+            ),
+            material: whiteMaterial,
+            transform: identityTransform
+          },
+          // Cornell Box - Ceiling
+          {
+            mesh: create_quad(
+              [556.0, 548.8, 0.0],
+              [556.0, 548.8, 559.2],
+              [0.0, 548.8, 559.2],
+              [0.0, 548.8, 0.0],
+              [1.0, 1.0, 1.0]
+            ),
+            material: whiteMaterial,
+            transform: identityTransform
+          },
+          // Cornell Box - Light (area on ceiling)
+          {
+            mesh: create_quad(
+              [343.0, 548.8, 227.0],
+              [343.0, 548.8, 332.0],
+              [213.0, 548.8, 332.0],
+              [213.0, 548.8, 227.0],
+              [1.0, 1.0, 1.0]
+            ),
+            material: whiteMaterial,
+            transform: identityTransform
+          },
+          // Cornell Box - Back wall
+          {
+            mesh: create_quad(
+              [549.6, 0.0, 559.2],
+              [0.0, 0.0, 559.2],
+              [0.0, 548.8, 559.2],
+              [556.0, 548.8, 559.2],
+              [1.0, 1.0, 1.0]
+            ),
+            material: whiteMaterial,
+            transform: identityTransform
+          },
+          // Cornell Box - Right wall (green)
+          {
+            mesh: create_quad(
+              [0.0, 0.0, 559.2],
+              [0.0, 0.0, 0.0],
+              [0.0, 548.8, 0.0],
+              [0.0, 548.8, 559.2],
+              [0.12, 0.45, 0.15]
+            ),
+            material: greenMaterial,
+            transform: identityTransform
+          },
+          // Cornell Box - Left wall (red)
+          {
+            mesh: create_quad(
+              [552.8, 0.0, 0.0],
+              [549.6, 0.0, 559.2],
+              [556.0, 548.8, 559.2],
+              [556.0, 548.8, 0.0],
+              [0.65, 0.05, 0.05]
+            ),
+            material: redMaterial,
+            transform: identityTransform
+          },
+          // Bottom-left sphere (red) - equilateral triangle with side = 1.1 * diameter = 132
+          {
+            mesh: createSphere(60, 32, 32, [0.8, 0.2, 0.2]),
+            material: { diffuseAlbedo: new Float32Array([0.8, 0.2, 0.2]) },
+            transform: new Float32Array([1, 0, 0, 0,
+                                          0, 1, 0, 0,
+                                          0, 0, 1, 0,
+                                          212, 227, 280, 1])
+          },
+          // Bottom-right sphere (yellow)
+          {
+            mesh: createSphere(60, 32, 32, [0.8, 0.8, 0.2]),
+            material: { diffuseAlbedo: new Float32Array([0.8, 0.8, 0.2]) },
+            transform: new Float32Array([1, 0, 0, 0,
+                                          0, 1, 0, 0,
+                                          0, 0, 1, 0,
+                                          344, 227, 280, 1])
+          },
+          // Top sphere (blue) - apex of equilateral triangle
+          {
+            mesh: createSphere(60, 32, 32, [0.2, 0.4, 0.8]),
+            material: { diffuseAlbedo: new Float32Array([0.2, 0.4, 0.8]) },
+            transform: new Float32Array([1, 0, 0, 0,
+                                          0, 1, 0, 0,
+                                          0, 0, 1, 0,
+                                          278, 341, 280, 1])
+          }
+        ];
 
         const scene : Scene = {
           objects: scene_objects,
@@ -256,8 +360,9 @@ export default function Playground() {
 
         const vertexPositions = merged.positions;
         const indexData = merged.indices;
-        const vertexColors = merged.colors;
+        const objectIds = merged.objectIds;
         const vertexNormals = merged.normals;
+        const materials = merged.materials;
 
 
         const vertexBuffer = device.createBuffer({
@@ -272,9 +377,9 @@ export default function Playground() {
           usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
         });
 
-        const colorBuffer = device.createBuffer({
-          label: "Vertex colors",
-          size: vertexColors.byteLength,
+        const objectIdBuffer = device.createBuffer({
+          label: "Object IDs",
+          size: objectIds.byteLength,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
         });
 
@@ -284,14 +389,17 @@ export default function Playground() {
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
         });
 
+        const MAX_LIGHTS = 4;
+        const MAX_MATERIALS = 16;
+
         const rastUniformBuffer = device.createBuffer({
-          size: (16 + 4 + 4 * 4) * 4, // MVP + light count + 4 lights (padded vec4)
+          size: (16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4) * 4, // MVP(16) + lightNb(4) + lights(4*4) + materialNb(4) + materials(16*4)
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
 
         const rayUniformBuffer = device.createBuffer({
-          size: 64 + 16 + (16 * 4), // camera_pos(16) + forward(16) + right(16) + up(16) + lightNb(4) + padding(12) + 4 lights (16 * 4) = 144 bytes
+          size: (16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4) * 4, // camera(16) + lightNb(4) + lights(4*4) + materialNb(4) + materials(16*4)
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -305,10 +413,10 @@ export default function Playground() {
           }],
         };
 
-        const vertexColorBufferLayout: GPUVertexBufferLayout = {
-          arrayStride: 12,
+        const objectIdBufferLayout: GPUVertexBufferLayout = {
+          arrayStride: 4,
           attributes: [{
-            format: "float32x3" as GPUVertexFormat,
+            format: "uint32" as GPUVertexFormat,
             offset: 0,
             shaderLocation: 1,
           }],
@@ -329,7 +437,7 @@ export default function Playground() {
                                             canvasFormat,
                                             rastUniformBuffer,
                                             vertexBufferLayout,
-                                            vertexColorBufferLayout,
+                                            objectIdBufferLayout,
                                             vertexNormalsBufferLayout
                                            );
 
@@ -338,7 +446,7 @@ export default function Playground() {
                                               rayUniformBuffer,
                                               vertexBuffer,
                                               indexBuffer,
-                                              colorBuffer,
+                                              objectIdBuffer,
                                               normalBuffer
                                              );
 
@@ -346,22 +454,27 @@ export default function Playground() {
 
         device.queue.writeBuffer(vertexBuffer, 0, vertexPositions.buffer, vertexPositions.byteOffset, vertexPositions.byteLength);
         device.queue.writeBuffer(indexBuffer, 0, indexData.buffer , indexData.byteOffset, indexData.byteLength);
-        device.queue.writeBuffer(colorBuffer, 0, vertexColors.buffer, vertexColors.byteOffset, vertexColors.byteLength);
+        device.queue.writeBuffer(objectIdBuffer, 0, objectIds.buffer, objectIds.byteOffset, objectIds.byteLength);
         device.queue.writeBuffer(normalBuffer, 0, vertexNormals.buffer, vertexNormals.byteOffset, vertexNormals.byteLength);
 
         // initial uniform write to have a render without the animation
-        const MAX_LIGHTS = 4;
-        const initialUniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4);
+        const initialUniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
         initialUniformData.set(getMVP(scene.camera), 0);
         initialUniformData[16] = scene.lights.length;
         for (let i = 0; i < scene.lights.length; i++) {
           initialUniformData.set(scene.lights[i].position, 20 + i * 4);
         }
+        // Add materials
+        const materialOffset = 20 + MAX_LIGHTS * 4;
+        initialUniformData[materialOffset] = materials.length;
+        for (let i = 0; i < materials.length; i++) {
+          initialUniformData.set(materials[i].diffuseAlbedo, materialOffset + 4 + i * 4);
+        }
         device.queue.writeBuffer(rastUniformBuffer, 0, initialUniformData);
 
         const basis = getCameraBasis(scene.camera);
         const fovFactor = Math.tan(scene.camera.fov / 2);
-        const initialRayUniformData = new Float32Array(20 + MAX_LIGHTS * 4);
+        const initialRayUniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
         initialRayUniformData.set([...scene.camera.position, fovFactor], 0);
         initialRayUniformData.set([...basis.forward, scene.camera.aspect], 4);
         initialRayUniformData.set([...basis.right, 0], 8);
@@ -369,6 +482,12 @@ export default function Playground() {
         initialRayUniformData[16] = scene.lights.length;
         for (let i = 0; i < scene.lights.length; i++) {
           initialRayUniformData.set(scene.lights[i].position, 20 + i * 4);
+        }
+        // Add materials
+        const rayMaterialOffset = 20 + MAX_LIGHTS * 4;
+        initialRayUniformData[rayMaterialOffset] = materials.length;
+        for (let i = 0; i < materials.length; i++) {
+          initialRayUniformData.set(materials[i].diffuseAlbedo, rayMaterialOffset + 4 + i * 4);
         }
         device.queue.writeBuffer(rayUniformBuffer, 0, initialRayUniformData);
 
@@ -398,19 +517,24 @@ export default function Playground() {
             scene.lights[1].position.set([x2, 400, z2]);
 
             // Update rasterizer uniform buffer with updated light position
-            const MAX_LIGHTS = 4;
-            const uniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4);
+            const uniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
             uniformData.set(getMVP(scene.camera), 0);
             uniformData[16] = scene.lights.length;
             for (let i = 0; i < scene.lights.length; i++) {
               uniformData.set(scene.lights[i].position, 20 + i * 4);
+            }
+            // Add materials
+            const materialOffset = 20 + MAX_LIGHTS * 4;
+            uniformData[materialOffset] = materials.length;
+            for (let i = 0; i < materials.length; i++) {
+              uniformData.set(materials[i].diffuseAlbedo, materialOffset + 4 + i * 4);
             }
             device.queue.writeBuffer(rastUniformBuffer, 0, uniformData);
 
             // Update raytracer uniform buffer with updated light position
             const basis = getCameraBasis(scene.camera);
             const fovFactor = Math.tan(scene.camera.fov / 2);
-            const rayUniformData = new Float32Array(20 + MAX_LIGHTS * 4);
+            const rayUniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
             rayUniformData.set([...scene.camera.position, fovFactor], 0);
             rayUniformData.set([...basis.forward, scene.camera.aspect], 4);
             rayUniformData.set([...basis.right, 0], 8);
@@ -418,6 +542,12 @@ export default function Playground() {
             rayUniformData[16] = scene.lights.length;
             for (let i = 0; i < scene.lights.length; i++) {
               rayUniformData.set(scene.lights[i].position, 20 + i * 4);
+            }
+            // Add materials
+            const rayMaterialOffset = 20 + MAX_LIGHTS * 4;
+            rayUniformData[rayMaterialOffset] = materials.length;
+            for (let i = 0; i < materials.length; i++) {
+              rayUniformData.set(materials[i].diffuseAlbedo, rayMaterialOffset + 4 + i * 4);
             }
             device.queue.writeBuffer(rayUniformBuffer, 0, rayUniformData);
           }
@@ -448,7 +578,7 @@ export default function Playground() {
             pass.setPipeline(rast_pipeline_info.pipeline);
             pass.setBindGroup(0, rast_pipeline_info.bindGroup);
             pass.setVertexBuffer(0, vertexBuffer);
-            pass.setVertexBuffer(1, colorBuffer);
+            pass.setVertexBuffer(1, objectIdBuffer);
             pass.setVertexBuffer(2, normalBuffer);
             pass.setIndexBuffer(indexBuffer, "uint32");
             pass.drawIndexed(indexData.length);
