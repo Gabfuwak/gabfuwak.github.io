@@ -16,6 +16,7 @@ export default function App() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/experiments" element={<Experiments />} />
         <Route path="/experiments/webgpu-triangle" element={<WebGPUTriangle />} />
+        <Route path="/playground" element={<Playground />} />
         <Route path="/secret/assignment" element={<Playground />} />
         <Route path="/secret/playground" element={<Playground />} />
         <Route path="*" element={<NotFound />} />
