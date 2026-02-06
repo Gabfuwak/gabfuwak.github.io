@@ -8,7 +8,8 @@ struct PointLight{
   _pad0: f32, // will be intensity later
   color: vec3<f32>,
   _pad1: f32,
-  // will be an other padding later
+  direction: vec3<f32>,
+  angle: f32,
 }
 
 struct Material{
@@ -179,6 +180,16 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
     for(var i = 0u; i < u32(uniforms.nbLights); i++){
       let lightDir = normalize(uniforms.lights[i].position - world_pos);
+
+      // Check if point is within the light's cone
+      let lightToPoint = -lightDir; // Direction from light to point
+      let coneAngle = uniforms.lights[i].angle;
+      let inCone = dot(normalize(uniforms.lights[i].direction), lightToPoint) >= cos(coneAngle / 2.0);
+
+      if(!inCone){
+        continue; // Skip this light if outside cone
+      }
+
       let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
       let lightColor = uniforms.lights[i].color;
 
@@ -191,15 +202,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
       let is_shadow = rayTrace(shadow_ray, &hit_data);
 
 
-      if(is_shadow && hit_data.t < length(uniforms.lights[i].position - world_pos)){ // we don't use hit data here so it's jsut a placeholder
-        // factor is a parameter, lower = stronger shadow
-        output_color += (color * lambertFactor * lightColor * 0.3);
-      }
-      else{
+      if(!is_shadow || hit_data.t > length(uniforms.lights[i].position - world_pos)){
         output_color += (color * lambertFactor * lightColor);
       }
     }
-    output_color /= uniforms.nbLights;
   }
 
   return vec4f(output_color, 1.0);
