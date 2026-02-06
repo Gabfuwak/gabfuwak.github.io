@@ -109,8 +109,9 @@ export default function NotFound() {
   } | null>(null);
 
   const [error, setError] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-  const hasGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
+  const [gpuState, setGpuState] = useState<'loading' | 'ready' | 'unavailable'>(
+    typeof navigator !== 'undefined' && !!navigator.gpu ? 'loading' : 'unavailable'
+  );
 
   // Compile shader and (re)create pipeline
   const compile = useCallback((source: string) => {
@@ -239,9 +240,9 @@ export default function NotFound() {
         };
 
         engineRef.current = engine;
-        setReady(true);
+        setGpuState('ready');
       } catch {
-        // no WebGPU
+        setGpuState('unavailable');
       }
     })();
 
@@ -258,12 +259,12 @@ export default function NotFound() {
 
   // Compile default shader once ready
   useEffect(() => {
-    if (ready) compile(defaultFragment);
-  }, [ready, compile]);
+    if (gpuState === 'ready') compile(defaultFragment);
+  }, [gpuState, compile]);
 
   // Initialize CodeMirror
   useEffect(() => {
-    if (!ready || !editorParentRef.current) return;
+    if (gpuState !== 'ready' || !editorParentRef.current) return;
 
     const timerRef = { current: 0 };
 
@@ -301,13 +302,13 @@ export default function NotFound() {
       view.destroy();
       editorViewRef.current = null;
     };
-  }, [ready, compile]);
+  }, [gpuState, compile]);
 
-  if (!hasGPU) {
+  if (gpuState === 'unavailable') {
     return (
       <div>
-        <h1>404 - Page Not Found</h1>
-        <p>The page you're looking for doesn't exist.</p>
+        <h1>404</h1>
+        <p>You look lost. I would have loved to have fun with you, but WebGPU is not enabled :(</p>
       </div>
     );
   }
@@ -315,7 +316,7 @@ export default function NotFound() {
   return (
     <div>
       <h1>404</h1>
-      <p>You seem lost. Here, have fun and write a shader.</p>
+      <p>You look lost. Here, have fun and write a shader.</p>
 
       <canvas
         ref={canvasRef}
