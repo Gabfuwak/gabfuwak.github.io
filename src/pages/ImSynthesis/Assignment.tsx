@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { createSphere, create_quad } from '../../utils/mesh_gen';
 import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP} from '../../utils/webgpu';
 import { type Scene, type Light, type Material} from '../../utils/scene';
@@ -6,6 +6,7 @@ import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 import rasterShaderCode from '../../shaders/assignment.wgsl?raw';
 import raytraceShaderCode from '../../shaders/raytracing.wgsl?raw';
+import { rgbToOklab, oklabToRgb } from '../../utils/colorSpaceUtils';
 
 export default function Playground() {
   const [webgpuSupported, setWebgpuSupported] = useState(true);
@@ -15,8 +16,17 @@ export default function Playground() {
 
   const [useRaytracer, setUseRaytracer] = useState(false);
 
+  const [sceneReady, setSceneReady] = useState(false);
+  const [selectedObject, setSelectedObject] = useState<number>(-1);
+  const [oklabL, setOklabL] = useState(0.6);
+  const [oklabA, setOklabA] = useState(0.15);
+  const [oklabB, setOklabB] = useState(0.08);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const isAnimatingRef = useRef(false);
   const useRayTracerRef = useRef(false);
+  const sceneRef = useRef<Scene | null>(null);
+  const triggerRenderRef = useRef<(() => void) | null>(null);
 
   function createRasterPipeline(
     device: GPUDevice,
@@ -193,16 +203,40 @@ export default function Playground() {
     useRayTracerRef.current = useRaytracer;
   }, [isAnimating, useRaytracer]);
 
+  const previewColor = useMemo(() => {
+    const [r, g, b] = oklabToRgb(oklabL, oklabA, oklabB);
+    const toSRGB = (c: number) => {
+      const linear = Math.max(0, Math.min(1, c));
+      return linear <= 0.0031308
+        ? linear * 12.92
+        : 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
+    };
+    return `rgb(${Math.round(toSRGB(r) * 255)}, ${Math.round(toSRGB(g) * 255)}, ${Math.round(toSRGB(b) * 255)})`;
+  }, [oklabL, oklabA, oklabB]);
+
+  useEffect(() => {
+    if (sceneRef.current && selectedObject >= 0 && selectedObject < sceneRef.current.objects.length) {
+      const [r, g, b] = oklabToRgb(oklabL, oklabA, oklabB);
+      sceneRef.current.objects[selectedObject].material.diffuseAlbedo.set([r, g, b]);
+      if (triggerRenderRef.current) {
+        triggerRenderRef.current();
+      }
+    }
+  }, [oklabL, oklabA, oklabB, selectedObject]);
+
   useEffect(() => {
 
 
 
 
-    const canvas = document.querySelector("canvas");
+    const canvas = canvasRef.current;
     if (!canvas) return;
 
     let cancelled = false;
     let fpsCheckTimeout: number;
+    let animFrameId = 0;
+    let pollId = 0;
+    let gpuDevice: GPUDevice | null = null;
 
 
 
@@ -216,6 +250,7 @@ export default function Playground() {
 
         // @ts-ignore - keeping adapter for reference
         const { device, context, _adapter } = await initWebGPU(canvas);
+        gpuDevice = device;
 
         const camera = initCamera(canvas,
                                   [278, 273, -800], // position
@@ -327,7 +362,8 @@ export default function Playground() {
             transform: new Float32Array([1, 0, 0, 0,
                                           0, 1, 0, 0,
                                           0, 0, 1, 0,
-                                          212, 227, 280, 1])
+                                          212, 227, 280, 1]),
+            label: "Ball 1"
           },
           // Bottom-right sphere (yellow)
           {
@@ -336,7 +372,8 @@ export default function Playground() {
             transform: new Float32Array([1, 0, 0, 0,
                                           0, 1, 0, 0,
                                           0, 0, 1, 0,
-                                          344, 227, 280, 1])
+                                          344, 227, 280, 1]),
+            label: "Ball 2"
           },
           // Top sphere (blue) - apex of equilateral triangle
           {
@@ -345,7 +382,8 @@ export default function Playground() {
             transform: new Float32Array([1, 0, 0, 0,
                                           0, 1, 0, 0,
                                           0, 0, 1, 0,
-                                          278, 341, 280, 1])
+                                          278, 341, 280, 1]),
+            label: "Ball 3"
           }
         ];
 
@@ -353,8 +391,22 @@ export default function Playground() {
           objects: scene_objects,
           lights: lights,
           camera: camera,
-          
+
         };
+
+        sceneRef.current = scene;
+
+        // Initialize color picker with first labeled object
+        const firstLabeledIdx = scene.objects.findIndex(obj => obj.label);
+        if (firstLabeledIdx !== -1) {
+          const mat = scene.objects[firstLabeledIdx].material.diffuseAlbedo;
+          const [l, a, b] = rgbToOklab(mat[0], mat[1], mat[2]);
+          setSelectedObject(firstLabeledIdx);
+          setOklabL(l);
+          setOklabA(a);
+          setOklabB(b);
+        }
+        setSceneReady(true);
 
         const merged = extractSceneData(scene);
 
@@ -391,15 +443,47 @@ export default function Playground() {
 
         const MAX_LIGHTS = 4;
         const MAX_MATERIALS = 16;
+        const UNIFORM_LENGTH = 16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4;
+
+        // Shared: pack lights + materials into a Float32Array starting at offset 16
+        const packLightsAndMaterials = (out: Float32Array, scene: Scene, materials: Material[]) => {
+          out[16] = scene.lights.length;
+          for (let i = 0; i < scene.lights.length; i++) {
+            out.set(scene.lights[i].position, 20 + i * 4);
+          }
+          const matOffset = 20 + MAX_LIGHTS * 4;
+          out[matOffset] = materials.length;
+          for (let i = 0; i < materials.length; i++) {
+            out.set(materials[i].diffuseAlbedo, matOffset + 4 + i * 4);
+          }
+        };
+
+        const packRasterUniforms = (scene: Scene, materials: Material[]): Float32Array => {
+          const data = new Float32Array(UNIFORM_LENGTH);
+          data.set(getMVP(scene.camera), 0);
+          packLightsAndMaterials(data, scene, materials);
+          return data;
+        };
+
+        const packRayUniforms = (scene: Scene, materials: Material[]): Float32Array => {
+          const data = new Float32Array(UNIFORM_LENGTH);
+          const basis = getCameraBasis(scene.camera);
+          const fovFactor = Math.tan(scene.camera.fov / 2);
+          data.set([...scene.camera.position, fovFactor], 0);
+          data.set([...basis.forward, scene.camera.aspect], 4);
+          data.set([...basis.right, 0], 8);
+          data.set([...basis.up, 0], 12);
+          packLightsAndMaterials(data, scene, materials);
+          return data;
+        };
 
         const rastUniformBuffer = device.createBuffer({
-          size: (16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4) * 4, // MVP(16) + lightNb(4) + lights(4*4) + materialNb(4) + materials(16*4)
+          size: UNIFORM_LENGTH * 4,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-
         const rayUniformBuffer = device.createBuffer({
-          size: (16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4) * 4, // camera(16) + lightNb(4) + lights(4*4) + materialNb(4) + materials(16*4)
+          size: UNIFORM_LENGTH * 4,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -457,39 +541,9 @@ export default function Playground() {
         device.queue.writeBuffer(objectIdBuffer, 0, objectIds.buffer, objectIds.byteOffset, objectIds.byteLength);
         device.queue.writeBuffer(normalBuffer, 0, vertexNormals.buffer, vertexNormals.byteOffset, vertexNormals.byteLength);
 
-        // initial uniform write to have a render without the animation
-        const initialUniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
-        initialUniformData.set(getMVP(scene.camera), 0);
-        initialUniformData[16] = scene.lights.length;
-        for (let i = 0; i < scene.lights.length; i++) {
-          initialUniformData.set(scene.lights[i].position, 20 + i * 4);
-        }
-        // Add materials
-        const materialOffset = 20 + MAX_LIGHTS * 4;
-        initialUniformData[materialOffset] = materials.length;
-        for (let i = 0; i < materials.length; i++) {
-          initialUniformData.set(materials[i].diffuseAlbedo, materialOffset + 4 + i * 4);
-        }
-        device.queue.writeBuffer(rastUniformBuffer, 0, initialUniformData);
-
-        const basis = getCameraBasis(scene.camera);
-        const fovFactor = Math.tan(scene.camera.fov / 2);
-        const initialRayUniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
-        initialRayUniformData.set([...scene.camera.position, fovFactor], 0);
-        initialRayUniformData.set([...basis.forward, scene.camera.aspect], 4);
-        initialRayUniformData.set([...basis.right, 0], 8);
-        initialRayUniformData.set([...basis.up, 0], 12);
-        initialRayUniformData[16] = scene.lights.length;
-        for (let i = 0; i < scene.lights.length; i++) {
-          initialRayUniformData.set(scene.lights[i].position, 20 + i * 4);
-        }
-        // Add materials
-        const rayMaterialOffset = 20 + MAX_LIGHTS * 4;
-        initialRayUniformData[rayMaterialOffset] = materials.length;
-        for (let i = 0; i < materials.length; i++) {
-          initialRayUniformData.set(materials[i].diffuseAlbedo, rayMaterialOffset + 4 + i * 4);
-        }
-        device.queue.writeBuffer(rayUniformBuffer, 0, initialRayUniformData);
+        // Initial uniform write so we get a frame before animation starts
+        device.queue.writeBuffer(rastUniformBuffer, 0, packRasterUniforms(scene, materials));
+        device.queue.writeBuffer(rayUniformBuffer, 0, packRayUniforms(scene, materials));
 
         const depthTexture = device.createTexture({
             size: [canvas.width, canvas.height],
@@ -498,6 +552,11 @@ export default function Playground() {
         });
 
         const startTime = performance.now();
+
+        const updateUniforms = () => {
+          device.queue.writeBuffer(rastUniformBuffer, 0, packRasterUniforms(scene, materials));
+          device.queue.writeBuffer(rayUniformBuffer, 0, packRayUniforms(scene, materials));
+        };
 
         // Helper to render one frame
         const renderFrame = (timestamp: number) => {
@@ -515,42 +574,9 @@ export default function Playground() {
 
             scene.lights[0].position.set([x,  300, z,]);
             scene.lights[1].position.set([x2, 400, z2]);
-
-            // Update rasterizer uniform buffer with updated light position
-            const uniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
-            uniformData.set(getMVP(scene.camera), 0);
-            uniformData[16] = scene.lights.length;
-            for (let i = 0; i < scene.lights.length; i++) {
-              uniformData.set(scene.lights[i].position, 20 + i * 4);
-            }
-            // Add materials
-            const materialOffset = 20 + MAX_LIGHTS * 4;
-            uniformData[materialOffset] = materials.length;
-            for (let i = 0; i < materials.length; i++) {
-              uniformData.set(materials[i].diffuseAlbedo, materialOffset + 4 + i * 4);
-            }
-            device.queue.writeBuffer(rastUniformBuffer, 0, uniformData);
-
-            // Update raytracer uniform buffer with updated light position
-            const basis = getCameraBasis(scene.camera);
-            const fovFactor = Math.tan(scene.camera.fov / 2);
-            const rayUniformData = new Float32Array(16 + 4 + MAX_LIGHTS * 4 + 4 + MAX_MATERIALS * 4);
-            rayUniformData.set([...scene.camera.position, fovFactor], 0);
-            rayUniformData.set([...basis.forward, scene.camera.aspect], 4);
-            rayUniformData.set([...basis.right, 0], 8);
-            rayUniformData.set([...basis.up, 0], 12);
-            rayUniformData[16] = scene.lights.length;
-            for (let i = 0; i < scene.lights.length; i++) {
-              rayUniformData.set(scene.lights[i].position, 20 + i * 4);
-            }
-            // Add materials
-            const rayMaterialOffset = 20 + MAX_LIGHTS * 4;
-            rayUniformData[rayMaterialOffset] = materials.length;
-            for (let i = 0; i < materials.length; i++) {
-              rayUniformData.set(materials[i].diffuseAlbedo, rayMaterialOffset + 4 + i * 4);
-            }
-            device.queue.writeBuffer(rayUniformBuffer, 0, rayUniformData);
           }
+
+          updateUniforms();
 
 
           const encoder = device.createCommandEncoder();
@@ -593,37 +619,62 @@ export default function Playground() {
         // Render initial frame immediately
         renderFrame(0);
 
-        // Measure FPS for performance warning
+        // Expose trigger function for color updates
+        triggerRenderRef.current = () => {
+          if (!cancelled) {
+            renderFrame(performance.now());
+          }
+        };
+
+        // Animation loop — only runs while isAnimating is true
+        const animationLoop = (timestamp: number) => {
+          if (cancelled) return;
+          renderFrame(timestamp);
+          if (isAnimatingRef.current) {
+            animFrameId = requestAnimationFrame(animationLoop);
+          }
+        };
+
+        // Start/stop the loop when isAnimating changes.
+        // We poll via rAF so we notice the ref change promptly.
+        const pollAnimation = () => {
+          if (cancelled) return;
+          if (isAnimatingRef.current && animFrameId === 0) {
+            animFrameId = requestAnimationFrame(animationLoop);
+          }
+          requestAnimationFrame(pollAnimation);
+        };
+        pollId = requestAnimationFrame(pollAnimation);
+
+        // Recurring FPS measurement: measure for 2s, pause 3s, repeat
         const measureFPS = () => {
+          if (cancelled) return;
           let frames = 0;
-          const startTime = performance.now();
-          const duration = 2000; // Measure for 2 seconds
+          const measureStart = performance.now();
+          const duration = 2000;
 
-          const renderLoop = (timestamp : number) => {
+          const measureLoop = (timestamp: number) => {
             if (cancelled) return;
-
             renderFrame(timestamp);
-
             frames++;
-            const elapsed = performance.now() - startTime;
-
-            if (elapsed < duration && !cancelled) {
-              requestAnimationFrame(renderLoop);
+            if (performance.now() - measureStart < duration) {
+              requestAnimationFrame(measureLoop);
             } else {
-              const fps = (frames / elapsed) * 1000;
+              const fps = (frames / duration) * 1000;
               console.log(`Average FPS: ${fps.toFixed(1)}`);
-              // Show warning if FPS is below 10
               if (fps < 10) {
                 setShowPerformanceWarning(true);
+              } else {
+                setShowPerformanceWarning(false);
               }
-              requestAnimationFrame(renderLoop);
+              // Schedule next measurement cycle
+              fpsCheckTimeout = window.setTimeout(measureFPS, 3000);
             }
           };
 
-          requestAnimationFrame(renderLoop);
+          requestAnimationFrame(measureLoop);
         };
 
-        // Start FPS measurement after a brief delay
         fpsCheckTimeout = window.setTimeout(measureFPS, 500);
 
       } catch (error) {
@@ -634,9 +685,10 @@ export default function Playground() {
 
     return () => {
       cancelled = true;
-      if (fpsCheckTimeout) {
-        clearTimeout(fpsCheckTimeout);
-      }
+      clearTimeout(fpsCheckTimeout);
+      cancelAnimationFrame(animFrameId);
+      cancelAnimationFrame(pollId);
+      gpuDevice?.destroy();
     };
   }, []);
 
@@ -655,29 +707,108 @@ export default function Playground() {
       {webgpuSupported ? (
         <>
           {showPerformanceWarning && <VulkanWarning />}
-          <canvas width="512" height="512" style={{ background: 'black', display: 'block', margin: '0 auto' }}></canvas>
+          <canvas ref={canvasRef} width="512" height="512" style={{ background: 'black', display: 'block', margin: '0 auto' }}></canvas>
+
+          <input
+            type="checkbox"
+            id="animatingCheckbox"
+            checked={isAnimating}
+            onChange={(e) => setIsAnimating(e.target.checked)}
+          />
+          <label htmlFor="animatingCheckbox">Light animation</label>
+
+          <input
+            type="checkbox"
+            id="raytracingCheckbox"
+            checked={useRaytracer}
+            onChange={(e) => setUseRaytracer(e.target.checked)}
+          />
+          <label htmlFor="raytracingCheckbox">Raytraced</label>
+
+          <br /><br />
+
+          {sceneReady && (
+            <div style={{ maxWidth: '400px' }}>
+              <h3>OKLab Color Picker</h3>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="objectSelect">Object: </label>
+                <select
+                  id="objectSelect"
+                  value={selectedObject}
+                  onChange={(e) => {
+                    const idx = parseInt(e.target.value);
+                    setSelectedObject(idx);
+                    if (sceneRef.current && idx >= 0 && idx < sceneRef.current.objects.length) {
+                      const mat = sceneRef.current.objects[idx].material.diffuseAlbedo;
+                      const [l, a, b] = rgbToOklab(mat[0], mat[1], mat[2]);
+                      setOklabL(l);
+                      setOklabA(a);
+                      setOklabB(b);
+                    }
+                  }}
+                >
+                  {sceneRef.current?.objects.map((obj, idx) => (
+                    obj.label ? <option key={idx} value={idx}>{obj.label}</option> : null
+                  ))}
+                </select>
+              </div>
+
+              <div style={{
+                width: '100px',
+                height: '100px',
+                border: '2px solid #333',
+                marginBottom: '15px',
+                backgroundColor: previewColor,
+              }} />
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="oklabL">Lightness: {oklabL.toFixed(2)}</label><br />
+                <input
+                  type="range"
+                  id="oklabL"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={oklabL}
+                  onChange={(e) => setOklabL(parseFloat(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="oklabA">a (green ← → red): {oklabA.toFixed(2)}</label><br />
+                <input
+                  type="range"
+                  id="oklabA"
+                  min="-0.4"
+                  max="0.4"
+                  step="0.01"
+                  value={oklabA}
+                  onChange={(e) => setOklabA(parseFloat(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="oklabB">b (blue ← → yellow): {oklabB.toFixed(2)}</label><br />
+                <input
+                  type="range"
+                  id="oklabB"
+                  min="-0.4"
+                  max="0.4"
+                  step="0.01"
+                  value={oklabB}
+                  onChange={(e) => setOklabB(parseFloat(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <WebGPUWarning />
       )}
-
-      <input
-        type="checkbox"
-        id="animatingCheckbox"
-        checked={isAnimating}
-        onChange={(e) => setIsAnimating(e.target.checked)}
-      />
-      <label htmlFor="animatingCheckbox">Light animation</label>
-
-      <input
-        type="checkbox"
-        id="raytracingCheckbox"
-        checked={useRaytracer}
-        onChange={(e) => setUseRaytracer(e.target.checked)}
-      />
-      <label htmlFor="raytracingCheckbox">Raytraced</label>
-
-
 
     </div>
   );
