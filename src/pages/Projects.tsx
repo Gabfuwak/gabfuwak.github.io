@@ -21,8 +21,7 @@ export default function Projects() {
 
         <li><strong>This website!!</strong>
           <br />
-          <em>With WebGPU more impressive than my web design skills! If you get lost, you might find a secret...</em>
-        </li>
+          <em>With WebGPU more impressive than my web design skills! If you get lost, you might find a secret...</em> </li>
       </ul>
 
       <h2>In the past, I worked on:</h2>
@@ -40,7 +39,7 @@ export default function Projects() {
             <strong>A head attachment for Upkie, an open-source wheel-legged robot</strong>
           </a>
           <br />
-          <em>My primer in robotics at INRIA Paris, supervised by <a href="https://scaron.info/" target="_blank" rel="noopener noreferrer">Stéphane Caron</a>. This is where I learned the basics of CAD, 3D printing, soldering, electronics.</em>
+          <em>A 45 hours project over the last semester of my bachelor's degree. It is my primer in robotics at INRIA Paris, supervised by <a href="https://scaron.info/" target="_blank" rel="noopener noreferrer">Stéphane Caron</a>. This is where I learned the basics of CAD, 3D printing, soldering, electronics.</em>
         </li>
         <li>
           <a href="https://github.com/Gabfuwak/minirust" target="_blank" rel="noopener noreferrer">
