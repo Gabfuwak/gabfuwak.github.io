@@ -18,9 +18,15 @@ export default function Projects() {
           <br />
           <em>University project in my Image Synthesis class, it's supposed to handle millions of light sources!</em>
         </li>
+
+        <li><strong>This website!!</strong>
+          <br />
+          <em>With WebGPU more impressive than my web design skills! If you get lost, you might find a secret...</em>
+        </li>
       </ul>
 
       <h2>In the past, I worked on:</h2>
+          <em>A selection of past projects with public documentation and/or that I'm proud of. More to come as I find time to clean up code and write some documentation!</em>
       <ul>
         <li>
           <a href="https://github.com/Gabfuwak/difference-voxelization" target="_blank" rel="noopener noreferrer">
@@ -42,6 +48,10 @@ export default function Projects() {
           </a>
           <br />
           <em>The reason I know assembly beyond MIPS!</em>
+        </li>
+        <li><strong>Building RX1, an open-source humanoid robot designed by <a href="https://red-rabbit-robotics.ghost.io/">Red Rabbit Robotics </a></strong>
+          <br />
+          <em>This project is on hold due to lack of time and funding. More news this summer, it should go up a category...</em>
         </li>
       </ul>
     </div>
