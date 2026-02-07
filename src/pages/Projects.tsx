@@ -5,30 +5,40 @@ export default function Projects() {
 
       <h2>I'm currently working on:</h2>
       <ul>
-        <li>Expressive bipedal locomotion through RL</li>
-        <li>Stress detection in VR using physiological markers (HRV, EDA)</li>
-        <li>Technical consulting for a short 3D animation film at Hongik University (tooling, shaders, tech-art guidance)</li>
+        <li><strong>Bipedal locomotion through RL </strong>
+          <br />
+          <em>Non-humanoid bipeds (think legs without a torso) in MuJoCo with the goal of making the gait expressive.</em>
+        </li>
+        <li><strong>Stress detection in VR using physiological markers (HRV, EDA)</strong></li>
+        <li><strong>Technical consulting for a 3D animation short film for students at Hongik University</strong>
+          <br />
+          <em>Tooling (set up a P4 server), shader programming, tech art guidance</em>
+        </li>
+        <li><strong>Implementing the <a href="https://cs.dartmouth.edu/~wjarosz/publications/bitterli20spatiotemporal.html">ReSTIR</a> paper for direct illumination in real time</strong>
+          <br />
+          <em>University project in my Image Synthesis class, it's supposed to handle millions of light sources!</em>
+        </li>
       </ul>
 
       <h2>In the past, I worked on:</h2>
       <ul>
         <li>
           <a href="https://github.com/Gabfuwak/difference-voxelization" target="_blank" rel="noopener noreferrer">
-            A multi-view vision system based on space voxelization to detect subpixel moving objects
+            <strong>A multi-view vision system based on space voxelization to detect subpixel moving objects</strong>
           </a>
           <br />
           <em>My (messy) introduction to WebGPU for the simulator, with a vision algorithm detecting sub-pixel motion in real time.</em>
         </li>
         <li>
           <a href="https://hackaday.io/project/185729-upkie-wheeled-biped-robots/log/245395-articulated-head-and-marker-tracking" target="_blank" rel="noopener noreferrer">
-            A head attachment for Upkie, an open-source wheel-legged robot
+            <strong>A head attachment for Upkie, an open-source wheel-legged robot</strong>
           </a>
           <br />
           <em>My primer in robotics at INRIA Paris, supervised by <a href="https://scaron.info/" target="_blank" rel="noopener noreferrer">Stéphane Caron</a>. This is where I learned the basics of CAD, 3D printing, soldering, electronics.</em>
         </li>
         <li>
           <a href="https://github.com/Gabfuwak/minirust" target="_blank" rel="noopener noreferrer">
-            A borrowchecker and RISC-V compiler backend for minirust, a toy language based on Rust
+            <strong>A borrowchecker and RISC-V compiler backend for minirust, a toy language based on Rust</strong>
           </a>
           <br />
           <em>The reason I know assembly beyond MIPS!</em>
