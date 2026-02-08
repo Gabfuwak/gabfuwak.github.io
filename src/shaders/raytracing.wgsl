@@ -5,7 +5,7 @@ struct VertexOutput {
 
 struct PointLight{
   position: vec3<f32>,
-  _pad0: f32, // will be intensity later
+  intensity: f32,
   color: vec3<f32>,
   _pad1: f32,
   direction: vec3<f32>,
@@ -14,7 +14,9 @@ struct PointLight{
 
 struct Material{
   baseColor: vec3<f32>,
-  _pad0: f32
+  roughness: f32,
+  fresnel: vec3<f32>,
+  metalness: f32,
 }
 
 struct RayUniforms {
@@ -66,6 +68,96 @@ var<storage, read> objectIds : array<u32>;  // object IDs per vertex
 @group(0) @binding(4)
 var<storage, read> normals : array<f32>;  // normals
 
+
+fn GGX_distribution(materialId: u32, halfVector: vec3<f32>, normal:vec3<f32>) -> f32 {
+  let roughness = uniforms.materials[materialId].roughness;
+  let alpha = roughness * roughness;
+  let alpha_sq = alpha * alpha;
+
+  let pi = 3.14159265359;
+
+  let NdotH = max(0.0, dot(normal, halfVector));
+  let NdotH_sq = NdotH * NdotH;
+
+  let denom_inner = NdotH_sq * (alpha_sq - 1.0) + 1.0;
+  let denom = pi * denom_inner * denom_inner;
+
+  return alpha_sq / max(0.0001, denom);
+}
+
+fn schlick_fresnel(materialId: u32, viewDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32>{
+  let f_0: vec3<f32> = uniforms.materials[materialId].fresnel;
+  let cosTheta = max(0.0, dot(viewDir, halfVector));
+  return f_0 + (1.0 - f_0) * pow(max(0.0, 1.0 - cosTheta), 5.0);
+}
+
+fn G_1_schlick_approx(vec: vec3<f32>, normal: vec3<f32>, k: f32) -> f32{
+  let NdotV = max(0.0, dot(normal, vec));
+  let denom = NdotV * (1.0 - k) + k;
+  return NdotV / max(0.0001, denom);
+}
+
+fn smith_geometric(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>) -> f32 {
+  let roughness = uniforms.materials[materialId].roughness;
+  let alpha = roughness * roughness;
+  let k = alpha * sqrt(2.0 / 3.14159265359); // GGX Schlick approximation
+  return G_1_schlick_approx(viewDir, normal, k) * G_1_schlick_approx(lightDir, normal, k);
+}
+
+fn microfacet_BRDF(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32> {
+  let d = GGX_distribution(materialId, halfVector, normal);
+  let f = schlick_fresnel(materialId, viewDir, halfVector);
+  let g = smith_geometric(materialId, normal, viewDir, lightDir);
+
+  let numerator = d * f * g;
+  let NdotL = max(0.0, dot(normal, lightDir));
+  let NdotV = max(0.0, dot(normal, viewDir));
+  let denominator = max(0.0001, 4.0 * NdotL * NdotV);
+
+  return numerator / denominator;
+}
+
+fn evaluateRadiance(
+  materialId: u32,
+  light: PointLight,
+  worldPos: vec3<f32>,
+  normal: vec3<f32>,
+  viewDir: vec3<f32>,
+  material: Material,
+) -> vec3<f32> {
+  // lightDir: from surface toward light
+  let lightVec = light.position - worldPos;
+  let lightDir = normalize(lightVec);
+  let halfVector = normalize(viewDir + lightDir);
+
+  // Check if point is within the light's cone
+  let lightToPoint = -lightDir; // Direction from light to point
+  let coneAngle = light.angle;
+  let inCone = dot(normalize(light.direction), lightToPoint) >= cos(coneAngle / 2.0);
+
+  if (!inCone) {
+    return vec3<f32>(0.0); // Outside cone, no contribution
+  }
+
+  // Attenuation
+  let lightDistance = length(lightVec) / 500.0;
+  let constant = 1.0;
+  let linear = 0.09;
+  let quadratic = 0.032;
+  let attenuationFactor = 1.0 / (constant + linear * lightDistance + quadratic * lightDistance * lightDistance);
+
+  // Lambert shading
+  let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
+
+  let diffuse_term = material.baseColor * lambertFactor * light.color * light.intensity * attenuationFactor;
+  let specular_term = microfacet_BRDF(materialId, normal, viewDir, lightDir, halfVector) * lambertFactor * light.color * light.intensity * attenuationFactor;
+
+  let kD = (1.0 - uniforms.materials[materialId].metalness) * (1.0 - uniforms.materials[materialId].fresnel);
+
+  return kD * diffuse_term + specular_term;
+}
+
+// ============================================================================
 
 
 fn ray_at(screenCoord: vec2<f32>) -> Ray {
@@ -161,7 +253,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     // Get objectId (should be same for all vertices of a triangle)
     let objectId = objectIds[i0];
     let material = uniforms.materials[objectId];
-    let color = material.baseColor;
 
     let n0 = vec3f(normals[i0 * 3 + 0], normals[i0 * 3 + 1], normals[i0 * 3 + 2]);
     let n1 = vec3f(normals[i1 * 3 + 0], normals[i1 * 3 + 1], normals[i1 * 3 + 2]);
@@ -176,34 +267,32 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let normal = normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
     let world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
 
+    // viewDir: from surface toward camera
+    let viewDir = normalize(uniforms.camera_pos - world_pos);
 
-
+    // Evaluate radiance from each light
     for(var i = 0u; i < u32(uniforms.nbLights); i++){
-      let lightDir = normalize(uniforms.lights[i].position - world_pos);
-
-      // Check if point is within the light's cone
-      let lightToPoint = -lightDir; // Direction from light to point
-      let coneAngle = uniforms.lights[i].angle;
-      let inCone = dot(normalize(uniforms.lights[i].direction), lightToPoint) >= cos(coneAngle / 2.0);
-
-      if(!inCone){
-        continue; // Skip this light if outside cone
-      }
-
-      let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
-      let lightColor = uniforms.lights[i].color;
-
+      // Cast shadow ray
+      let lightVec = uniforms.lights[i].position - world_pos;
+      let lightDir = normalize(lightVec);
 
       var shadow_ray: Ray;
-
       shadow_ray.direction = lightDir;
-      shadow_ray.origin = world_pos + normal * 0.001;
+      shadow_ray.origin = world_pos + normal * 0.1;
 
-      let is_shadow = rayTrace(shadow_ray, &hit_data);
+      var shadow_hit: Hit;
+      let is_shadow = rayTrace(shadow_ray, &shadow_hit);
 
-
-      if(!is_shadow || hit_data.t > length(uniforms.lights[i].position - world_pos)){
-        output_color += (color * lambertFactor * lightColor);
+      // Only add light contribution if not in shadow
+      if(!is_shadow || shadow_hit.t > length(lightVec)){
+        output_color += evaluateRadiance(
+          objectId,
+          uniforms.lights[i],
+          world_pos,
+          normal,
+          viewDir,
+          material
+        );
       }
     }
   }

@@ -1,6 +1,6 @@
 struct PointLight{
   position: vec3<f32>,
-  _pad0: f32, // will be intensity later
+  intensity: f32,
   color: vec3<f32>,
   _pad1: f32,
   direction: vec3<f32>,
@@ -9,7 +9,9 @@ struct PointLight{
 
 struct Material{
   baseColor: vec3<f32>,
-  _pad0: f32
+  roughness: f32,
+  fresnel: vec3<f32>,
+  metalness: f32,
 }
 
 struct Uniforms {
@@ -28,6 +30,45 @@ struct Uniforms {
 
 @group(0) @binding(0)
 var<uniform> uniforms : Uniforms;
+
+
+// ============================================================================
+// Shared shading function - can be copy-pasted between shaders
+// ============================================================================
+
+fn evaluateRadiance(
+  light: PointLight,
+  worldPos: vec3<f32>,
+  normal: vec3<f32>,
+  material: Material
+) -> vec3<f32> {
+  let lightPosVector = light.position - worldPos;
+  let lightDir = normalize(lightPosVector);
+
+  // Check if point is within the light's cone
+  let lightToPoint = -lightDir; // Direction from light to point
+  let coneAngle = light.angle;
+  let inCone = dot(normalize(light.direction), lightToPoint) >= cos(coneAngle / 2.0);
+
+  if (!inCone) {
+    return vec3<f32>(0.0); // Outside cone, no contribution
+  }
+
+  // Attenuation
+  let lightDistance = length(lightPosVector) / 500.0;
+  let constant = 1.0;
+  let linear = 0.09;
+  let quadratic = 0.032;
+  let attenuationFactor = 1.0 / (constant + linear * lightDistance + quadratic * lightDistance * lightDistance);
+
+  // Lambert shading
+  let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
+
+  // Combine all factors
+  return material.baseColor * lambertFactor * light.color * light.intensity * attenuationFactor;
+}
+
+// ============================================================================
 
 
 struct VertexInput {
@@ -65,25 +106,16 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
   // Look up material by objectId
   let material = uniforms.materials[input.objectId];
-  let baseColor = material.baseColor;
 
+  // Evaluate radiance from each light
   for(var i = 0u; i < u32(uniforms.nbLights); i++){
-    let lightDir = normalize(uniforms.lights[i].position - input.worldPos.xyz);
-
-    // Check if point is within the light's cone
-    let lightToPoint = -lightDir; // Direction from light to point
-    let coneAngle = uniforms.lights[i].angle;
-    let inCone = dot(normalize(uniforms.lights[i].direction), lightToPoint) >= cos(coneAngle / 2.0);
-
-    if(!inCone){
-      continue; // Skip this light if outside cone
-    }
-
-
-    let lambertFactor = max(0.0, dot(lightDir, normalize(input.normal.xyz)));
-    output_color += baseColor * lambertFactor * uniforms.lights[i].color;
+    output_color += evaluateRadiance(
+      uniforms.lights[i],
+      input.worldPos.xyz,
+      input.normal.xyz,
+      material
+    );
   }
 
-  output_color /= f32(uniforms.nbLights);
   return vec4f(output_color, 1.0);
 }

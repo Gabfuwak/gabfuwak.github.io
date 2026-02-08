@@ -18,12 +18,16 @@ export interface SceneObject{
 export interface Light{
   position: Float32Array, // vec3f
   color: Float32Array, // vec3f
+  intensity: number,
   direction: Float32Array, // vec3f
   angle: number, //f32 light opening in degrees. 360 => point light
 }
 
 export interface Material{
   diffuseAlbedo: Float32Array, // vec3f
+  roughness: number, //f32
+  fresnel: Float32Array, // vec3f
+  metalness: number, //f32
 }
 
 export interface MergedScene {

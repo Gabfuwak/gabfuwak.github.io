@@ -22,23 +22,70 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
     2000,
   );
 
+  const boxCenter = [278, 274, 280];
+
+  const normalize = (x: number, y: number, z: number): Float32Array => {
+    const len = Math.sqrt(x * x + y * y + z * z);
+    return new Float32Array([x / len, y / len, z / len]);
+  };
+
   const lights: Light[] = [
+    // Keylight
     {
-        position: new Float32Array([278.0, 530.0, 280.0]), 
+        position: new Float32Array([220, 420, -800]),
         color: new Float32Array([1, 1, 1]),
-        direction: new Float32Array([0, -1, 0]),
-        angle: 45.0 // in degrees 
+        intensity: 1.0,
+        direction: normalize(
+          boxCenter[0] - 220,
+          boxCenter[1] - 420,
+          boxCenter[2] - (-800)
+        ),
+        angle: 35.0 // in degrees
     },
+    // Fill light
     {
-        position: new Float32Array([400, 530, 150]), color: new Float32Array([1, 1, 1]),
-        direction: new Float32Array([1, 1, 1]),
-        angle: 360.0
+        position: new Float32Array([520, 60, 80]),
+        color: new Float32Array([1, 1, 1]),
+        intensity: 0.4,
+        direction: normalize(
+          boxCenter[0] - 520,
+          boxCenter[1] - 60,
+          boxCenter[2] - 80
+        ),
+        angle: 135.0
+    },
+    // Back light
+    {
+        position: new Float32Array([50, 274, 500]),
+        color: new Float32Array([1, 1, 1]),
+        intensity: 0.25,
+        direction: normalize(
+          boxCenter[0] - 50,
+          boxCenter[1] - 274,
+          boxCenter[2] - 500
+        ),
+        angle: 135.0
     },
   ];
 
-  const whiteMaterial: Material = { diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]) };
-  const redMaterial:   Material = { diffuseAlbedo: new Float32Array([0.65, 0.05, 0.05]) };
-  const greenMaterial: Material = { diffuseAlbedo: new Float32Array([0.12, 0.45, 0.15]) };
+  const whiteMaterial: Material = {
+      diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]),
+      roughness: 0,
+      metalness: 0,
+      fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+  };
+  const redMaterial:   Material = {
+      diffuseAlbedo: new Float32Array([0.65, 0.05, 0.05]),
+      roughness: 0,
+      metalness: 0,
+      fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+  };
+  const greenMaterial: Material = {
+      diffuseAlbedo: new Float32Array([0.12, 0.45, 0.15]),
+      roughness: 0,
+      metalness: 0,
+      fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+  };
 
   const identityTransform = new Float32Array([
     1, 0, 0, 0,
@@ -105,22 +152,22 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
     // Bottom-left sphere (red)
     {
       mesh: createSphere(60, 10, 10, [0.8, 0.2, 0.2]),
-      material: { diffuseAlbedo: new Float32Array([0.8, 0.2, 0.2]) },
-      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 212,227,280,1]),
+      material: { diffuseAlbedo: new Float32Array([0.8, 0.2, 0.2]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05]),},
+      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 212,227,100,1]),
       label: "Ball 1",
     },
     // Bottom-right sphere (yellow)
     {
       mesh: createSphere(60, 10, 10, [0.8, 0.8, 0.2]),
-      material: { diffuseAlbedo: new Float32Array([0.8, 0.8, 0.2]) },
-      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 344,227,280,1]),
+      material: { diffuseAlbedo: new Float32Array([0.8, 0.8, 0.2]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05]),},
+      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 344,227,100,1]),
       label: "Ball 2",
     },
     // Top sphere (blue)
     {
       mesh: createSphere(60, 10, 10, [0.2, 0.4, 0.8]),
-      material: { diffuseAlbedo: new Float32Array([0.2, 0.4, 0.8]) },
-      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 278,341,280,1]),
+      material: { diffuseAlbedo: new Float32Array([0.2, 0.4, 0.8]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05])}, // plastic
+      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 278,341,100,1]),
       label: "Ball 3",
     },
   ];
@@ -138,7 +185,7 @@ interface Engine {
   startAnimation(): void;
   stopAnimation(): void;
   setUseRaytracer(val: boolean): void;
-  updateMaterial(idx: number, rgb: [number, number, number]): void;
+  updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number): void;
   startFPSMonitor(onResult: (fps: number) => void): void;
   stopFPSMonitor(): void;
   destroy(): void;
@@ -183,12 +230,15 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   const MAX_LIGHTS = 4;
   const MAX_MATERIALS = 16;
-  const UNIFORM_LENGTH = 16 + 4 + MAX_LIGHTS * 12 + 4 + MAX_MATERIALS * 4;
+  const MATERIAL_SIZE = 8; // vec3 baseColor + roughness + vec3 fresnel + metalness  = 8 floats
+  const UNIFORM_LENGTH = 16 + 12 + 4 + MAX_LIGHTS * 12 + 4 + MAX_MATERIALS * MATERIAL_SIZE;
+
 
   const packLightsAndMaterials = (out: Float32Array) => {
     out[16] = scene.lights.length;
     for (let i = 0; i < scene.lights.length; i++) {
       out.set(scene.lights[i].position, 20 + i * 12);
+      out[23 + i * 12] = scene.lights[i].intensity;
       out.set(scene.lights[i].color, 24 + i * 12);
       out.set(scene.lights[i].direction, 28 + i * 12);
       out[31 + i * 12] = scene.lights[i].angle * Math.PI / 180;
@@ -196,7 +246,12 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     const matOffset = 20 + MAX_LIGHTS * 12;
     out[matOffset] = materials.length;
     for (let i = 0; i < materials.length; i++) {
-      out.set(materials[i].diffuseAlbedo, matOffset + 4 + i * 4);
+      const baseIdx = matOffset + 4 + i * MATERIAL_SIZE;
+      out.set(materials[i].diffuseAlbedo, baseIdx);
+      out[baseIdx + 3] = materials[i].roughness ?? 0;
+      out.set(materials[i].fresnel, baseIdx + 4);
+      out[baseIdx + 7] = materials[i].metalness ?? 0;
+      // padding at baseIdx + 5, 6, 7 remains 0
     }
   };
 
@@ -274,7 +329,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
         entryPoint: "fragmentMain",
         targets: [{ format: canvasFormat }],
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: "triangle-list", cullMode: "back" },
       depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
     });
     return { pipeline, bindGroup };
@@ -481,9 +536,11 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       useRaytracer = val;
     },
 
-    updateMaterial(idx: number, rgb: [number, number, number]) {
+    updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number) {
       if (idx >= 0 && idx < scene.objects.length) {
         scene.objects[idx].material.diffuseAlbedo.set(rgb);
+        if (roughness !== undefined) scene.objects[idx].material.roughness = roughness;
+        if (metalness !== undefined) scene.objects[idx].material.metalness = metalness;
         if (!destroyed) renderFrame(performance.now());
       }
     },
@@ -514,6 +571,8 @@ export default function Playground() {
   const [oklabL, setOklabL] = useState(0.6);
   const [oklabA, setOklabA] = useState(0.15);
   const [oklabB, setOklabB] = useState(0.08);
+  const [roughness, setRoughness] = useState(0.5);
+  const [metalness, setMetalness] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -551,12 +610,14 @@ export default function Playground() {
         // Initialize color picker with first labeled object
         const firstLabeledIdx = scene.objects.findIndex(obj => obj.label);
         if (firstLabeledIdx !== -1) {
-          const mat = scene.objects[firstLabeledIdx].material.diffuseAlbedo;
-          const [l, a, b] = rgbToOklab(mat[0], mat[1], mat[2]);
+          const mat = scene.objects[firstLabeledIdx].material;
+          const [l, a, b] = rgbToOklab(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]);
           setSelectedObject(firstLabeledIdx);
           setOklabL(l);
           setOklabA(a);
           setOklabB(b);
+          setRoughness(mat.roughness ?? 0.5);
+          setMetalness(mat.metalness ?? 0);
         }
         setSceneReady(true);
 
@@ -630,11 +691,13 @@ export default function Playground() {
                     setSelectedObject(idx);
                     const scene = engineRef.current?.scene;
                     if (scene && idx >= 0 && idx < scene.objects.length) {
-                      const mat = scene.objects[idx].material.diffuseAlbedo;
-                      const [l, a, b] = rgbToOklab(mat[0], mat[1], mat[2]);
+                      const mat = scene.objects[idx].material;
+                      const [l, a, b] = rgbToOklab(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]);
                       setOklabL(l);
                       setOklabA(a);
                       setOklabB(b);
+                      setRoughness(mat.roughness ?? 0.5);
+                      setMetalness(mat.metalness ?? 0);
                     }
                   }}
                 >
@@ -665,7 +728,7 @@ export default function Playground() {
                     const l = parseFloat(e.target.value);
                     setOklabL(l);
                     const [r, g, b] = oklabToRgb(l, oklabA, oklabB);
-                    engineRef.current?.updateMaterial(selectedObject, [r, g, b]);
+                    engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
                   }}
                   style={{ width: '100%' }}
                 />
@@ -684,7 +747,7 @@ export default function Playground() {
                     const a = parseFloat(e.target.value);
                     setOklabA(a);
                     const [r, g, b] = oklabToRgb(oklabL, a, oklabB);
-                    engineRef.current?.updateMaterial(selectedObject, [r, g, b]);
+                    engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
                   }}
                   style={{ width: '100%' }}
                 />
@@ -703,7 +766,45 @@ export default function Playground() {
                     const bVal = parseFloat(e.target.value);
                     setOklabB(bVal);
                     const [r, g, b] = oklabToRgb(oklabL, oklabA, bVal);
-                    engineRef.current?.updateMaterial(selectedObject, [r, g, b]);
+                    engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="roughness">Roughness: {roughness.toFixed(2)}</label><br />
+                <input
+                  type="range"
+                  id="roughness"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={roughness}
+                  onChange={(e) => {
+                    const r = parseFloat(e.target.value);
+                    setRoughness(r);
+                    const [red, green, blue] = oklabToRgb(oklabL, oklabA, oklabB);
+                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], r, metalness);
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="metalness">Metalness: {metalness.toFixed(2)}</label><br />
+                <input
+                  type="range"
+                  id="metalness"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={metalness}
+                  onChange={(e) => {
+                    const m = parseFloat(e.target.value);
+                    setMetalness(m);
+                    const [red, green, blue] = oklabToRgb(oklabL, oklabA, oklabB);
+                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], roughness, m);
                   }}
                   style={{ width: '100%' }}
                 />
