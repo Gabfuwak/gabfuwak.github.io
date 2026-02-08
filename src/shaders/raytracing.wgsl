@@ -20,18 +20,17 @@ struct Material{
 }
 
 struct RayUniforms {
-  camera_pos: vec3f,
-  fov_factor: f32,          // uses camera_pos padding slot
+  ////// RAY TRACER ONLY
   camera_forward: vec3f,
-  aspect_ratio: f32,        // uses camera_forward padding slot
+  fov_factor: f32,
   camera_right: vec3f,
-  _pad0: f32,               // unused padding
+  aspect_ratio: f32,
   camera_up: vec3f,
-  _pad1: f32,               // unused padding
+  _pad0: f32,
+  _pad1: vec4f,               // unused (indices 12-15)
+  ////// SHARED, starting at idx 16
+  camera_pos: vec3f,
   nbLights: f32,
-  _pad2: f32,
-  _pad3: f32,
-  _pad4: f32,
   lights: array<PointLight, 4>,
   nbMaterials: f32,
   _pad5: f32,
@@ -267,7 +266,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let normal = normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
     let world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
 
-    // viewDir: from surface toward camera
     let viewDir = normalize(uniforms.camera_pos - world_pos);
 
     // Evaluate radiance from each light

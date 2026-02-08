@@ -16,10 +16,8 @@ struct Material{
 
 struct Uniforms {
   mvp : mat4x4<f32>,
+  camera_pos: vec3<f32>,
   nbLights: f32,
-  _pad1: f32,
-  _pad2: f32,
-  _pad3: f32,
   lights: array<PointLight, 4>,
   nbMaterials: f32,
   _pad4: f32,
@@ -32,18 +30,71 @@ struct Uniforms {
 var<uniform> uniforms : Uniforms;
 
 
+fn GGX_distribution(materialId: u32, halfVector: vec3<f32>, normal:vec3<f32>) -> f32 {
+  let roughness = uniforms.materials[materialId].roughness;
+  let alpha = roughness * roughness;
+  let alpha_sq = alpha * alpha;
+
+  let pi = 3.14159265359;
+
+  let NdotH = max(0.0, dot(normal, halfVector));
+  let NdotH_sq = NdotH * NdotH;
+
+  let denom_inner = NdotH_sq * (alpha_sq - 1.0) + 1.0;
+  let denom = pi * denom_inner * denom_inner;
+
+  return alpha_sq / max(0.0001, denom);
+}
+
+fn schlick_fresnel(materialId: u32, viewDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32>{
+  let f_0: vec3<f32> = uniforms.materials[materialId].fresnel;
+  let cosTheta = max(0.0, dot(viewDir, halfVector));
+  return f_0 + (1.0 - f_0) * pow(max(0.0, 1.0 - cosTheta), 5.0);
+}
+
+fn G_1_schlick_approx(vec: vec3<f32>, normal: vec3<f32>, k: f32) -> f32{
+  let NdotV = max(0.0, dot(normal, vec));
+  let denom = NdotV * (1.0 - k) + k;
+  return NdotV / max(0.0001, denom);
+}
+
+fn smith_geometric(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>) -> f32 {
+  let roughness = uniforms.materials[materialId].roughness;
+  let alpha = roughness * roughness;
+  let k = alpha * sqrt(2.0 / 3.14159265359); // GGX Schlick approximation
+  return G_1_schlick_approx(viewDir, normal, k) * G_1_schlick_approx(lightDir, normal, k);
+}
+
+fn microfacet_BRDF(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32> {
+  let d = GGX_distribution(materialId, halfVector, normal);
+  let f = schlick_fresnel(materialId, viewDir, halfVector);
+  let g = smith_geometric(materialId, normal, viewDir, lightDir);
+
+  let numerator = d * f * g;
+  let NdotL = max(0.0, dot(normal, lightDir));
+  let NdotV = max(0.0, dot(normal, viewDir));
+  let denominator = max(0.0001, 4.0 * NdotL * NdotV);
+
+  return numerator / denominator;
+}
+
 // ============================================================================
 // Shared shading function - can be copy-pasted between shaders
 // ============================================================================
 
 fn evaluateRadiance(
+  materialId: u32,
   light: PointLight,
   worldPos: vec3<f32>,
-  normal: vec3<f32>,
+  normal_in: vec3<f32>,
+  viewDir: vec3<f32>,
   material: Material
 ) -> vec3<f32> {
-  let lightPosVector = light.position - worldPos;
-  let lightDir = normalize(lightPosVector);
+  let normal = normalize(normal_in);
+  // lightDir: from surface toward light
+  let lightVec = light.position - worldPos;
+  let lightDir = normalize(lightVec);
+  let halfVector = normalize(viewDir + lightDir);
 
   // Check if point is within the light's cone
   let lightToPoint = -lightDir; // Direction from light to point
@@ -55,7 +106,7 @@ fn evaluateRadiance(
   }
 
   // Attenuation
-  let lightDistance = length(lightPosVector) / 500.0;
+  let lightDistance = length(lightVec) / 500.0;
   let constant = 1.0;
   let linear = 0.09;
   let quadratic = 0.032;
@@ -64,8 +115,12 @@ fn evaluateRadiance(
   // Lambert shading
   let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
 
-  // Combine all factors
-  return material.baseColor * lambertFactor * light.color * light.intensity * attenuationFactor;
+  let diffuse_term = material.baseColor * lambertFactor * light.color * light.intensity * attenuationFactor;
+  let specular_term = microfacet_BRDF(materialId, normal, viewDir, lightDir, halfVector) * lambertFactor * light.color * light.intensity * attenuationFactor;
+
+  let kD = (1.0 - uniforms.materials[materialId].metalness) * (1.0 - uniforms.materials[materialId].fresnel);
+
+  return kD * diffuse_term + specular_term;
 }
 
 // ============================================================================
@@ -107,12 +162,17 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   // Look up material by objectId
   let material = uniforms.materials[input.objectId];
 
+  // viewDir: from surface toward camera
+  let viewDir = normalize(uniforms.camera_pos - input.worldPos.xyz);
+
   // Evaluate radiance from each light
   for(var i = 0u; i < u32(uniforms.nbLights); i++){
     output_color += evaluateRadiance(
+      input.objectId,
       uniforms.lights[i],
       input.worldPos.xyz,
       input.normal.xyz,
+      viewDir,
       material
     );
   }

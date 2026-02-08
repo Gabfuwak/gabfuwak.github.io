@@ -235,7 +235,8 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
 
   const packLightsAndMaterials = (out: Float32Array) => {
-    out[16] = scene.lights.length;
+    out.set(scene.camera.position, 16); // camera_pos at index 16-18 (shared)
+    out[19] = scene.lights.length;      // nbLights at index 19 (shared)
     for (let i = 0; i < scene.lights.length; i++) {
       out.set(scene.lights[i].position, 20 + i * 12);
       out[23 + i * 12] = scene.lights[i].intensity;
@@ -266,11 +267,11 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     const data = new Float32Array(UNIFORM_LENGTH);
     const basis = getCameraBasis(scene.camera);
     const fovFactor = Math.tan(scene.camera.fov / 2);
-    data.set([...scene.camera.position, fovFactor], 0);
-    data.set([...basis.forward, scene.camera.aspect], 4);
-    data.set([...basis.right, 0], 8);
-    data.set([...basis.up, 0], 12);
-    packLightsAndMaterials(data);
+    data.set([...basis.forward, fovFactor], 0);
+    data.set([...basis.right, scene.camera.aspect], 4);
+    data.set([...basis.up, 0], 8);
+    // 12-15: unused
+    packLightsAndMaterials(data); // writes camera_pos at 16-18, nbLights at 19
     return data;
   };
 
