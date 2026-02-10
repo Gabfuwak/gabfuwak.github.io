@@ -69,7 +69,7 @@ var<storage, read> normals : array<f32>;  // normals
 
 
 fn GGX_distribution(materialId: u32, halfVector: vec3<f32>, normal:vec3<f32>) -> f32 {
-  let roughness = uniforms.materials[materialId].roughness;
+  let roughness = max(0.045, uniforms.materials[materialId].roughness);
   let alpha = roughness * roughness;
   let alpha_sq = alpha * alpha;
 
@@ -81,7 +81,7 @@ fn GGX_distribution(materialId: u32, halfVector: vec3<f32>, normal:vec3<f32>) ->
   let denom_inner = NdotH_sq * (alpha_sq - 1.0) + 1.0;
   let denom = pi * denom_inner * denom_inner;
 
-  return alpha_sq / max(0.0001, denom);
+  return alpha_sq / max(1e-7, denom);
 }
 
 fn schlick_fresnel(materialId: u32, viewDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32>{
@@ -97,7 +97,7 @@ fn G_1_schlick_approx(vec: vec3<f32>, normal: vec3<f32>, k: f32) -> f32{
 }
 
 fn smith_geometric(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>) -> f32 {
-  let roughness = uniforms.materials[materialId].roughness;
+  let roughness = max(0.045, uniforms.materials[materialId].roughness);
   let alpha = roughness * roughness;
   let k = alpha * sqrt(2.0 / 3.14159265359); // GGX Schlick approximation
   return G_1_schlick_approx(viewDir, normal, k) * G_1_schlick_approx(lightDir, normal, k);
