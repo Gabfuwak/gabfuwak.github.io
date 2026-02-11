@@ -204,6 +204,36 @@ struct Hit {
   t: f32
 };
 
+struct SurfacePoint {
+  world_pos: vec3f,
+  normal:    vec3f,
+  objectId:  u32,
+  material:  Material,
+};
+
+fn resolve_hit(hit: Hit) -> SurfacePoint {
+  let i0 = indices[hit.triIndex * 3u];
+  let i1 = indices[hit.triIndex * 3u + 1u];
+  let i2 = indices[hit.triIndex * 3u + 2u];
+
+  let bary = hit.barycentricCoords;
+
+  let p0 = vec3f(vertices[i0*3u], vertices[i0*3u+1u], vertices[i0*3u+2u]);
+  let p1 = vec3f(vertices[i1*3u], vertices[i1*3u+1u], vertices[i1*3u+2u]);
+  let p2 = vec3f(vertices[i2*3u], vertices[i2*3u+1u], vertices[i2*3u+2u]);
+
+  let n0 = vec3f(normals[i0*3u], normals[i0*3u+1u], normals[i0*3u+2u]);
+  let n1 = vec3f(normals[i1*3u], normals[i1*3u+1u], normals[i1*3u+2u]);
+  let n2 = vec3f(normals[i2*3u], normals[i2*3u+1u], normals[i2*3u+2u]);
+
+  var sp: SurfacePoint;
+  sp.world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
+  sp.normal    = normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
+  sp.objectId  = objectIds[i0];
+  sp.material  = uniforms.materials[sp.objectId];
+  return sp;
+}
+
 fn ray_at(screenCoord: vec2<f32>) -> Ray {
   let horizontal = screenCoord.x * uniforms.fov_factor * uniforms.aspect_ratio;
   let vertical   = screenCoord.y * uniforms.fov_factor;
@@ -279,55 +309,48 @@ fn rayVertexMain(@builtin(vertex_index) vid: u32) -> RayVertexOutput {
   return output;
 }
 
+const MAX_BOUNCES = 2u;
+
 @fragment
 fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
-  var curr_ray: Ray = ray_at(input.screen_pos);
-  var hit_data: Hit;
+  var ray = ray_at(input.screen_pos);
+  var throughput = vec3f(1.0);
   var output_color = vec3f(0.0);
 
-  if (rayTrace(curr_ray, &hit_data)) {
-    let i0 = indices[hit_data.triIndex * 3u + 0u];
-    let i1 = indices[hit_data.triIndex * 3u + 1u];
-    let i2 = indices[hit_data.triIndex * 3u + 2u];
+  for (var bounce = 0u; bounce < MAX_BOUNCES; bounce++) {
+    var hit_data: Hit;
+    if (!rayTrace(ray, &hit_data)) { break; }
 
-    let objectId = objectIds[i0];
-    let material = uniforms.materials[objectId];
-
-    let n0 = vec3f(normals[i0*3u], normals[i0*3u+1u], normals[i0*3u+2u]);
-    let n1 = vec3f(normals[i1*3u], normals[i1*3u+1u], normals[i1*3u+2u]);
-    let n2 = vec3f(normals[i2*3u], normals[i2*3u+1u], normals[i2*3u+2u]);
-
-    let p0 = vec3f(vertices[i0*3u], vertices[i0*3u+1u], vertices[i0*3u+2u]);
-    let p1 = vec3f(vertices[i1*3u], vertices[i1*3u+1u], vertices[i1*3u+2u]);
-    let p2 = vec3f(vertices[i2*3u], vertices[i2*3u+1u], vertices[i2*3u+2u]);
-
-    let bary      = hit_data.barycentricCoords;
-    let normal    = normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
-    let world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
-    let viewDir   = normalize(uniforms.camera_pos - world_pos);
+    let sp = resolve_hit(hit_data);
+    let viewDir = -ray.direction;
 
     for (var i = 0u; i < u32(uniforms.nbLights); i++) {
-      let lightVec = uniforms.lights[i].position - world_pos;
+      let lightVec = uniforms.lights[i].position - sp.world_pos;
       let lightDir = normalize(lightVec);
 
       var shadow_ray: Ray;
       shadow_ray.direction = lightDir;
-      shadow_ray.origin    = world_pos + normal * 0.1;
+      shadow_ray.origin = sp.world_pos + sp.normal * 0.1;
 
       var shadow_hit: Hit;
       let is_shadow = rayTrace(shadow_ray, &shadow_hit);
 
       if (!is_shadow || shadow_hit.t > length(lightVec)) {
-        output_color += evaluateRadiance(
-          objectId,
+        output_color += throughput * evaluateRadiance(
+          sp.objectId,
           uniforms.lights[i],
-          world_pos,
-          normal,
+          sp.world_pos,
+          sp.normal,
           viewDir,
-          material
+          sp.material
         );
       }
     }
+
+    let F = schlick_fresnel(sp.objectId, viewDir, sp.normal);
+    if (all(throughput * F < vec3f(0.001))) { break; }
+    throughput *= F;
+    ray = Ray(sp.world_pos + sp.normal * 0.001, reflect(-viewDir, sp.normal));
   }
 
   return vec4f(output_color, 1.0);

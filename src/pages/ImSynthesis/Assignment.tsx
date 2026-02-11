@@ -590,7 +590,7 @@ export default function Playground() {
       {webgpuSupported ? (
         <>
           {showPerformanceWarning && <VulkanWarning />}
-          <canvas ref={canvasRef} width="512" height="512" style={{ background: 'black', display: 'block', margin: '0 auto' }}></canvas>
+          <canvas ref={canvasRef} width="1024" height="1024" style={{ background: 'black', display: 'block', margin: '0 auto' }}></canvas>
 
           <input
             type="checkbox"
