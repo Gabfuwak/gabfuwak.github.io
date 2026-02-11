@@ -5,8 +5,7 @@ import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP} from 
 import { type Scene, type Light, type Material} from '../../utils/scene';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
-import rasterShaderCode from '../../shaders/assignment.wgsl?raw';
-import raytraceShaderCode from '../../shaders/raytracing.wgsl?raw';
+import shaderCode from '../../shaders/assignment.wgsl?raw';
 import { rgbToOklab, oklabToRgb } from '../../utils/colorSpaceUtils';
 
 // ---------------------------------------------------------------------------
@@ -229,8 +228,14 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   const MAX_LIGHTS = 4;
   const MAX_MATERIALS = 16;
-  const MATERIAL_SIZE = 8; // vec3 baseColor + roughness + vec3 fresnel + metalness  = 8 floats
-  const UNIFORM_LENGTH = 16 + 12 + 4 + MAX_LIGHTS * 12 + 4 + MAX_MATERIALS * MATERIAL_SIZE;
+  const MATERIAL_SIZE = 8; // vec3 baseColor + roughness + vec3 fresnel + metalness = 8 floats
+  const MVP_SIZE = 16;
+  const SHARED_HEADER = 4; // camera_pos (vec3) + nbLights (f32)
+  const LIGHTS_SIZE = MAX_LIGHTS * 12;
+  const MATERIALS_HEADER = 4; // nbMaterials + 3 padding floats
+  const RAY_CAMERA_SIZE = 12; // forward+fov, right+aspect, up+pad
+  const RAY_OFFSET = MVP_SIZE + SHARED_HEADER + LIGHTS_SIZE + MATERIALS_HEADER + MAX_MATERIALS * MATERIAL_SIZE;
+  const UNIFORM_LENGTH = RAY_OFFSET + RAY_CAMERA_SIZE;
 
 
   const packLightsAndMaterials = (out: Float32Array) => {
@@ -251,138 +256,77 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       out[baseIdx + 3] = materials[i].roughness ?? 0;
       out.set(materials[i].fresnel, baseIdx + 4);
       out[baseIdx + 7] = materials[i].metalness ?? 0;
-      // padding at baseIdx + 5, 6, 7 remains 0
     }
   };
 
-  const packRasterUniforms = (): Float32Array<ArrayBuffer> => {
+  const packUniforms = (): Float32Array<ArrayBuffer> => {
     const data = new Float32Array(UNIFORM_LENGTH);
+    // Rasterizer MVP (indices 0-15)
     data.set(getMVP(scene.camera), 0);
+    // Shared lights/materials (indices 16+)
     packLightsAndMaterials(data);
-    return data;
-  };
-
-  const packRayUniforms = (): Float32Array<ArrayBuffer> => {
-    const data = new Float32Array(UNIFORM_LENGTH);
+    // Raytracer camera basis (at RAY_OFFSET)
     const basis = getCameraBasis(scene.camera);
     const fovFactor = Math.tan(scene.camera.fov / 2);
-    data.set([...basis.forward, fovFactor], 0);
-    data.set([...basis.right, scene.camera.aspect], 4);
-    data.set([...basis.up, 0], 8);
-    // 12-15: unused
-    packLightsAndMaterials(data); // writes camera_pos at 16-18, nbLights at 19
+    data.set([...basis.forward, fovFactor], RAY_OFFSET);
+    data.set([...basis.right, scene.camera.aspect], RAY_OFFSET + 4);
+    data.set([...basis.up, 0], RAY_OFFSET + 8);
     return data;
   };
 
-  const rastUniformBuffer = device.createBuffer({
-    size: UNIFORM_LENGTH * 4,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-  const rayUniformBuffer = device.createBuffer({
+  const uniformBuffer = device.createBuffer({
     size: UNIFORM_LENGTH * 4,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
-  device.queue.writeBuffer(rastUniformBuffer, 0, packRasterUniforms());
-  device.queue.writeBuffer(rayUniformBuffer, 0, packRayUniforms());
+  device.queue.writeBuffer(uniformBuffer, 0, packUniforms());
 
   // ----- Pipelines -----
 
   const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
-  const vertexBufferLayout: GPUVertexBufferLayout = {
-    arrayStride: 12,
-    attributes: [{ format: "float32x3" as GPUVertexFormat, offset: 0, shaderLocation: 0 }],
-  };
-  const objectIdBufferLayout: GPUVertexBufferLayout = {
-    arrayStride: 4,
-    attributes: [{ format: "uint32" as GPUVertexFormat, offset: 0, shaderLocation: 1 }],
-  };
-  const vertexNormalsBufferLayout: GPUVertexBufferLayout = {
-    arrayStride: 12,
-    attributes: [{ format: "float32x3" as GPUVertexFormat, offset: 0, shaderLocation: 2 }],
-  };
+  const shaderModule = device.createShaderModule({ label: "Shader", code: shaderCode });
 
-  const createRasterPipeline = () => {
-    const shaderModule = device.createShaderModule({ label: "Shader", code: rasterShaderCode });
-    const bindGroupLayout = device.createBindGroupLayout({
-      entries: [{
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" },
-      }],
-    });
-    const bindGroup = device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: rastUniformBuffer } }],
-    });
-    const pipeline = device.createRenderPipeline({
-      label: "Rasterizer pipeline",
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vertexMain",
-        buffers: [vertexBufferLayout, objectIdBufferLayout, vertexNormalsBufferLayout],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fragmentMain",
-        targets: [{ format: canvasFormat }],
-      },
-      primitive: { topology: "triangle-list", cullMode: "back" },
-      depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
-    });
-    return { pipeline, bindGroup };
-  };
+  const bindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+      { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    ] as GPUBindGroupLayoutEntry[],
+  });
 
-  const createRayTracePipeline = () => {
-    const quadVertices = new Float32Array([
-      -1, -1,  1, -1,  -1, 1,
-       1, -1,  1,  1,  -1, 1,
-    ]);
-    const quadVertexBuffer = device.createBuffer({
-      size: quadVertices.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(quadVertexBuffer, 0, quadVertices);
+  const bindGroup = device.createBindGroup({
+    layout: bindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: uniformBuffer } },
+      { binding: 1, resource: { buffer: vertexBuffer } },
+      { binding: 2, resource: { buffer: indexBuffer } },
+      { binding: 3, resource: { buffer: objectIdBuffer } },
+      { binding: 4, resource: { buffer: normalBuffer } },
+    ],
+  });
 
-    const shaderModule = device.createShaderModule({ label: "Shader", code: raytraceShaderCode });
-    const bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-      ] as GPUBindGroupLayoutEntry[],
-    });
-    const bindGroup = device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: rayUniformBuffer } },
-        { binding: 1, resource: { buffer: vertexBuffer } },
-        { binding: 2, resource: { buffer: indexBuffer } },
-        { binding: 3, resource: { buffer: objectIdBuffer } },
-        { binding: 4, resource: { buffer: normalBuffer } },
-      ],
-    });
-    const quadBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 8,
-      attributes: [{ format: "float32x2", offset: 0, shaderLocation: 0 }],
-    };
-    const pipeline = device.createRenderPipeline({
-      label: "Raytraced pipeline",
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
-      vertex: { module: shaderModule, entryPoint: "vertexMain", buffers: [quadBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: "fragmentMain", targets: [{ format: canvasFormat }] },
-      primitive: { topology: "triangle-list", cullMode: "none" },
-      depthStencil: { format: "depth24plus", depthWriteEnabled: false, depthCompare: "always" },
-    });
-    return { pipeline, bindGroup, quadVertexBuffer };
-  };
+  const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
 
-  const rast = createRasterPipeline();
-  const ray = createRayTracePipeline();
+  const rastPipeline = device.createRenderPipeline({
+    label: "Rasterizer pipeline",
+    layout: pipelineLayout,
+    vertex: { module: shaderModule, entryPoint: "rastVertexMain" },
+    fragment: { module: shaderModule, entryPoint: "rastFragmentMain", targets: [{ format: canvasFormat }] },
+    primitive: { topology: "triangle-list", cullMode: "back" },
+    depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
+  });
+
+  const rayPipeline = device.createRenderPipeline({
+    label: "Raytraced pipeline",
+    layout: pipelineLayout,
+    vertex: { module: shaderModule, entryPoint: "rayVertexMain" },
+    fragment: { module: shaderModule, entryPoint: "rayFragmentMain", targets: [{ format: canvasFormat }] },
+    primitive: { topology: "triangle-list", cullMode: "none" },
+    depthStencil: { format: "depth24plus", depthWriteEnabled: false, depthCompare: "always" },
+  });
 
   // ----- Depth texture -----
 
@@ -402,8 +346,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   const startTime = performance.now();
 
   const updateUniforms = () => {
-    device.queue.writeBuffer(rastUniformBuffer, 0, packRasterUniforms());
-    device.queue.writeBuffer(rayUniformBuffer, 0, packRayUniforms());
+    device.queue.writeBuffer(uniformBuffer, 0, packUniforms());
   };
 
   const renderFrame = (timestamp: number) => {
@@ -440,18 +383,13 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     });
 
     if (useRaytracer) {
-      pass.setPipeline(ray.pipeline);
-      pass.setBindGroup(0, ray.bindGroup);
-      pass.setVertexBuffer(0, ray.quadVertexBuffer);
+      pass.setPipeline(rayPipeline);
+      pass.setBindGroup(0, bindGroup);
       pass.draw(6);
     } else {
-      pass.setPipeline(rast.pipeline);
-      pass.setBindGroup(0, rast.bindGroup);
-      pass.setVertexBuffer(0, vertexBuffer);
-      pass.setVertexBuffer(1, objectIdBuffer);
-      pass.setVertexBuffer(2, normalBuffer);
-      pass.setIndexBuffer(indexBuffer, "uint32");
-      pass.drawIndexed(indexData.length);
+      pass.setPipeline(rastPipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(indexData.length);
     }
 
     pass.end();
