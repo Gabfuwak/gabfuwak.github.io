@@ -106,7 +106,7 @@ fn evaluateRadiance(
   }
 
   // Attenuation
-  let lightDistance = length(lightVec) / 500.0;
+  let lightDistance = length(lightVec) / 100.0;
   let constant = 1.0;
   let linear = 0.09;
   let quadratic = 0.032;

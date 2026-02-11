@@ -32,39 +32,51 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
   const lights: Light[] = [
     // Keylight
     {
-        position: new Float32Array([220, 420, -800]),
-        color: new Float32Array([1, 1, 1]),
-        intensity: 1.0,
+        position: new Float32Array([71, 412, -140]),
+        color: new Float32Array([1.0, 1.0, 1.0]),
+        intensity: 1.5,
         direction: normalize(
-          boxCenter[0] - 220,
-          boxCenter[1] - 420,
-          boxCenter[2] - (-800)
+          boxCenter[0] - 71,
+          boxCenter[1] - 412,
+          boxCenter[2] - (-140)
         ),
-        angle: 35.0 // in degrees
+        angle: 360.0
     },
     // Fill light
     {
-        position: new Float32Array([520, 60, 80]),
-        color: new Float32Array([1, 1, 1]),
-        intensity: 0.4,
+        position: new Float32Array([485, 137, -140]),
+        color: new Float32Array([0.0, 0.2, 0.8]),
+        intensity: 2.5,
         direction: normalize(
-          boxCenter[0] - 520,
-          boxCenter[1] - 60,
-          boxCenter[2] - 80
+          boxCenter[0] - 485,
+          boxCenter[1] - 137,
+          boxCenter[2] - (-140)
         ),
-        angle: 135.0
+        angle: 360.0
     },
     // Back light
     {
-        position: new Float32Array([50, 274, 500]),
-        color: new Float32Array([1, 1, 1]),
-        intensity: 0.25,
+        position: new Float32Array([71, 137, 70]),
+        color: new Float32Array([0.7, 0.3, 0.0]),
+        intensity: 0.8,
         direction: normalize(
-          boxCenter[0] - 50,
-          boxCenter[1] - 274,
-          boxCenter[2] - 500
+          boxCenter[0] - 71,
+          boxCenter[1] - 137,
+          boxCenter[2] - 70
         ),
-        angle: 135.0
+        angle: 360.0
+    },
+    // Rotating light
+    {
+        position: new Float32Array([554, 494, 280]),
+        color: new Float32Array([1.0, 1.0, 1.0]),
+        intensity: 0.8,
+        direction: normalize(
+          boxCenter[0] - 554,
+          boxCenter[1] - 494,
+          boxCenter[2] - 280
+        ),
+        angle: 360.0
     },
   ];
 
@@ -149,26 +161,12 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
       ),
       material: redMaterial, transform: identityTransform,
     },
-    // Bottom-left sphere (red)
+    // Center sphere
     {
-      mesh: createSphere(60, 10, 10, [0.8, 0.2, 0.2]),
+      mesh: createSphere(150, 32, 32, [0.8, 0.2, 0.2]),
       material: { diffuseAlbedo: new Float32Array([0.8, 0.2, 0.2]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05]),},
-      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 212,227,100,1]),
-      label: "Ball 1",
-    },
-    // Bottom-right sphere (yellow)
-    {
-      mesh: createSphere(60, 10, 10, [0.8, 0.8, 0.2]),
-      material: { diffuseAlbedo: new Float32Array([0.8, 0.8, 0.2]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05]),},
-      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 344,227,100,1]),
-      label: "Ball 2",
-    },
-    // Top sphere (blue)
-    {
-      mesh: createSphere(60, 10, 10, [0.2, 0.4, 0.8]),
-      material: { diffuseAlbedo: new Float32Array([0.2, 0.4, 0.8]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05])}, // plastic
-      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 278,341,100,1]),
-      label: "Ball 3",
+      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 278,150,280,1]),
+      label: "Ball",
     },
   ];
 
@@ -412,9 +410,14 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
     if (animating) {
       const elapsed = (timestamp - startTime) / 1000;
-      const radius = 100;
-      scene.lights[0].position.set([278 + radius * Math.sin(elapsed), 500, 280 + radius * Math.cos(elapsed)]);
-      scene.lights[1].position.set([278 + radius * Math.sin(elapsed * 1.5), 400, 280 + radius * Math.cos(elapsed * 1.5)]);
+      const angle = elapsed * 1.25; // matches solution: angle = time_ms / 800
+      const lx = 278 + 220 * Math.cos(angle);
+      const lz = 280 + 220 * Math.sin(angle);
+      const ly = 274 + 180 * Math.sin(angle);
+      scene.lights[3].position.set([lx, ly, lz]);
+      const dx = 278 - lx, dy = 274 - ly, dz = 280 - lz;
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      scene.lights[3].direction.set([dx / len, dy / len, dz / len]);
     }
 
     updateUniforms();
