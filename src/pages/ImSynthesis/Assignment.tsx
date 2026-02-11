@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { createSphere, create_quad } from '../../utils/mesh_gen';
+import { load_mesh, create_quad, get_mat } from '../../utils/mesh_gen';
+import dragonObj from '../../assets/dragon_2348.obj?raw';
 import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP} from '../../utils/webgpu';
 import { type Scene, type Light, type Material} from '../../utils/scene';
 import WebGPUWarning from '../../components/WebGPUWarning';
@@ -161,12 +162,12 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
       ),
       material: redMaterial, transform: identityTransform,
     },
-    // Center sphere
+    // Stanford dragon
     {
-      mesh: createSphere(150, 32, 32, [0.8, 0.2, 0.2]),
-      material: { diffuseAlbedo: new Float32Array([0.8, 0.2, 0.2]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05]),},
-      transform: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 278,150,280,1]),
-      label: "Ball",
+      mesh: load_mesh(dragonObj, [0.8, 0.2, 0.2]),
+      material: { diffuseAlbedo: new Float32Array([0.8, 0.2, 0.2]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05]) },
+      transform: get_mat({ translation: [279, 137, 269], rotation: [0, Math.PI / 4, 0], scale: 70 }),
+      label: "Dragon",
     },
   ];
 

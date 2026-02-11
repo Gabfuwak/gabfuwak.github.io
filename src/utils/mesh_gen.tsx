@@ -1,3 +1,23 @@
+import { mat4Translate, mat4RotateX, mat4RotateY, mat4RotateZ, mat4Scale, mat4Multiply } from './mat4';
+
+export interface Transform {
+  translation: [number, number, number];
+  rotation: [number, number, number]; // Euler [rx, ry, rz] in radians, applied Y→X→Z
+  scale: number;
+}
+
+export function get_mat(t: Transform): Float32Array {
+  const [tx, ty, tz] = t.translation;
+  const [rx, ry, rz] = t.rotation;
+  return mat4Multiply(
+    mat4Translate(tx, ty, tz),
+    mat4Multiply(mat4RotateY(ry),
+      mat4Multiply(mat4RotateX(rx),
+        mat4Multiply(mat4RotateZ(rz),
+          mat4Scale(t.scale))))
+  );
+}
+
 export interface Mesh {
   positions: Float32Array<ArrayBuffer>;
   normals: Float32Array<ArrayBuffer>;
@@ -280,6 +300,87 @@ export function create_quad(
         return mesh;
 
       }
+
+// Parse a Wavefront OBJ string into a Mesh.
+// Each face vertex is emitted as a unique vertex (no index deduplication),
+// which keeps the code simple and naturally supports per-face normals.
+// If the OBJ has no vn entries, flat normals are computed from each triangle.
+export function load_mesh(
+  obj_text: string,
+  color: [number, number, number] = [1.0, 1.0, 1.0]
+): Mesh {
+  const pos_raw:  number[] = [];
+  const norm_raw: number[] = [];
+  const uv_raw:   number[] = [];
+
+  const positions: number[] = [];
+  const normals:   number[] = [];
+  const uvs:       number[] = [];
+  const colors:    number[] = [];
+
+  for (const line of obj_text.split('\n')) {
+    const parts = line.trim().split(/\s+/);
+    if (parts[0] === 'v') {
+      pos_raw.push(+parts[1], +parts[2], +parts[3]);
+    } else if (parts[0] === 'vn') {
+      norm_raw.push(+parts[1], +parts[2], +parts[3]);
+    } else if (parts[0] === 'vt') {
+      uv_raw.push(+parts[1], +parts[2]);
+    } else if (parts[0] === 'f') {
+      const verts = parts.slice(1);
+      // Fan triangulation: (0,1,2), (0,2,3), (0,3,4), ...
+      for (let i = 1; i < verts.length - 1; i++) {
+        for (const token of [verts[0], verts[i], verts[i + 1]]) {
+          const [p, t, n] = token.split('/');
+          const pi = (parseInt(p) - 1) * 3;
+          positions.push(pos_raw[pi], pos_raw[pi + 1], pos_raw[pi + 2]);
+          if (n) {
+            const ni = (parseInt(n) - 1) * 3;
+            normals.push(norm_raw[ni], norm_raw[ni + 1], norm_raw[ni + 2]);
+          } else {
+            normals.push(0, 0, 0); // placeholder, overwritten below if needed
+          }
+          if (t) {
+            const ti = (parseInt(t) - 1) * 2;
+            uvs.push(uv_raw[ti], uv_raw[ti + 1]);
+          } else {
+            uvs.push(0, 0);
+          }
+          colors.push(color[0], color[1], color[2]);
+        }
+      }
+    }
+  }
+
+  // Compute flat (face) normals when the OBJ has none
+  if (norm_raw.length === 0) {
+    for (let i = 0; i < positions.length; i += 9) {
+      // Edge vectors from vertex 0 to vertices 1 and 2
+      const ax = positions[i+3] - positions[i],   ay = positions[i+4] - positions[i+1],   az = positions[i+5] - positions[i+2];
+      const bx = positions[i+6] - positions[i],   by = positions[i+7] - positions[i+1],   bz = positions[i+8] - positions[i+2];
+      const nx = ay*bz - az*by,  ny = az*bx - ax*bz,  nz = ax*by - ay*bx;
+      const len = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
+      for (let v = 0; v < 3; v++) {
+        normals[i + v*3]     = nx / len;
+        normals[i + v*3 + 1] = ny / len;
+        normals[i + v*3 + 2] = nz / len;
+      }
+    }
+  }
+
+  // Trivial sequential index buffer (one unique vertex per face-vertex)
+  const vertex_count = positions.length / 3;
+  const indices = new Uint32Array(vertex_count);
+  for (let i = 0; i < vertex_count; i++) indices[i] = i;
+
+  return {
+    positions: new Float32Array(positions),
+    normals:   new Float32Array(normals),
+    uvs:       new Float32Array(uvs),
+    colors:    new Float32Array(colors),
+    indices,
+  };
+}
 
 export function createCornellBox(): Mesh {
   const white: [number, number, number] = [1.0, 1.0, 1.0];
