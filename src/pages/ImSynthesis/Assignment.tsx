@@ -564,7 +564,7 @@ export default function Playground() {
         }
         setSceneReady(true);
 
-        engine.startFPSMonitor(fps => setShowPerformanceWarning(fps < 10));
+        engine.startFPSMonitor(fps => setShowPerformanceWarning(fps < 30));
         engine.render();
       } catch (error) {
         console.error("WebGPU initialization failed:", error);
