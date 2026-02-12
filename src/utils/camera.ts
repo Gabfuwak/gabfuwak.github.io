@@ -1,4 +1,4 @@
-import { mat4Identity, mat4Multiply, mat4Translate, mat4Perspective } from './mat4';
+import { mat4Multiply, mat4Translate, mat4Perspective } from './mat4';
 
 // Simple pinhole camera interface
 export interface Camera {
