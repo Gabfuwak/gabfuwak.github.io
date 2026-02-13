@@ -333,6 +333,24 @@ fn rayVertexMain(@builtin(vertex_index) vid: u32) -> RayVertexOutput {
   return output;
 }
 
+// ============================================================================
+// Picking
+// ============================================================================
+
+@group(0) @binding(6) var<uniform>             pick_coords : vec2f;
+@group(0) @binding(7) var<storage, read_write> pick_result : i32;
+
+@compute @workgroup_size(1)
+fn pick_main() {
+  let ray = ray_at(pick_coords);
+  var hit: Hit;
+  if (rayTrace(ray, &hit)) {
+    pick_result = i32(objectIds[indices[hit.triIndex * 3u]]);
+  } else {
+    pick_result = -1;
+  }
+}
+
 const MAX_BOUNCES = 2u;
 
 @fragment

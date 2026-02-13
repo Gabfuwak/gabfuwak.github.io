@@ -106,7 +106,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
       id: 3,
       diffuseAlbedo: new Float32Array([0.8, 0.0, 0.0]),
       roughness: 0,
-      metalness: 0,
+      metalness: 0.8,
       fresnel: new Float32Array([0.05, 0.05, 0.05]),
   };
 
@@ -125,7 +125,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
         [0.0, 0.0, 559.2], [549.6, 0.0, 559.2],
         [1.0, 1.0, 1.0],
       ),
-      material: whiteMaterial, transform: identityTransform,
+      material: whiteMaterial, transform: identityTransform, label: "Floor",
     },
     // Cornell Box - Ceiling
     {
@@ -134,7 +134,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
         [0.0, 548.8, 559.2], [0.0, 548.8, 0.0],
         [1.0, 1.0, 1.0],
       ),
-      material: whiteMaterial, transform: identityTransform,
+      material: whiteMaterial, transform: identityTransform, label: "Ceiling",
     },
     // Cornell Box - Light (area on ceiling)
     {
@@ -143,7 +143,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
         [213.0, 548.8, 332.0], [213.0, 548.8, 227.0],
         [1.0, 1.0, 1.0],
       ),
-      material: whiteMaterial, transform: identityTransform,
+      material: whiteMaterial, transform: identityTransform, label: "Light",
     },
     // Cornell Box - Back wall
     {
@@ -152,7 +152,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
         [0.0, 548.8, 559.2], [556.0, 548.8, 559.2],
         [1.0, 1.0, 1.0],
       ),
-      material: whiteMaterial, transform: identityTransform,
+      material: whiteMaterial, transform: identityTransform, label: "Back wall",
     },
     // Cornell Box - Right wall (green)
     {
@@ -161,7 +161,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
         [0.0, 548.8, 0.0], [0.0, 548.8, 559.2],
         [0.12, 0.45, 0.15],
       ),
-      material: greenMaterial, transform: identityTransform,
+      material: greenMaterial, transform: identityTransform, label: "Right wall",
     },
     // Cornell Box - Left wall (red)
     {
@@ -170,7 +170,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
         [556.0, 548.8, 559.2], [556.0, 548.8, 0.0],
         [0.65, 0.05, 0.05],
       ),
-      material: redMaterial, transform: identityTransform,
+      material: redMaterial, transform: identityTransform, label: "Left wall",
     },
     // Stanford dragon
     {
@@ -195,6 +195,7 @@ interface Engine {
   stopAnimation(): void;
   setUseRaytracer(val: boolean): void;
   updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number): void;
+  pickObject(sx: number, sy: number): Promise<number>;
   startFPSMonitor(onResult: (fps: number) => void): void;
   stopFPSMonitor(): void;
   destroy(): void;
@@ -328,6 +329,38 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   });
 
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+
+  // ----- Pick buffers -----
+
+  const pickCoordsBuffer = device.createBuffer({
+    size: 8,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const pickResultBuffer = device.createBuffer({
+    size: 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+  const readbackBuffer = device.createBuffer({
+    size: 4,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+
+  const pickPipeline = device.createComputePipeline({
+    layout: 'auto',
+    compute: { module: shaderModule, entryPoint: 'pick_main' },
+  });
+
+  const pickBindGroup = device.createBindGroup({
+    layout: pickPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: uniformBuffer } },
+      { binding: 1, resource: { buffer: vertexBuffer } },
+      { binding: 2, resource: { buffer: indexBuffer } },
+      { binding: 3, resource: { buffer: objectIdBuffer } },
+      { binding: 6, resource: { buffer: pickCoordsBuffer } },
+      { binding: 7, resource: { buffer: pickResultBuffer } },
+    ],
+  });
 
   const rastPipeline = device.createRenderPipeline({
     label: "Rasterizer pipeline",
@@ -498,6 +531,23 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       useRaytracer = val;
     },
 
+    async pickObject(sx: number, sy: number): Promise<number> {
+      if (destroyed) return -1;
+      device.queue.writeBuffer(pickCoordsBuffer, 0, new Float32Array([sx, sy]));
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pickPipeline);
+      pass.setBindGroup(0, pickBindGroup);
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      encoder.copyBufferToBuffer(pickResultBuffer, 0, readbackBuffer, 0, 4);
+      device.queue.submit([encoder.finish()]);
+      await readbackBuffer.mapAsync(GPUMapMode.READ);
+      const id = new Int32Array(readbackBuffer.getMappedRange())[0];
+      readbackBuffer.unmap();
+      return id;
+    },
+
     updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number) {
       if (idx >= 0 && idx < scene.objects.length) {
         scene.objects[idx].material.diffuseAlbedo.set(rgb);
@@ -563,6 +613,23 @@ export default function Playground() {
   const engineRef = useRef<Engine | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
+  const handleCanvasClick = async (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !engineRef.current || !sceneReady) return;
+    const rect = canvas.getBoundingClientRect();
+    const sx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const sy = 1 - ((e.clientY - rect.top) / rect.height) * 2;
+    const id = await engineRef.current.pickObject(sx, sy);
+    if (id < 0) return;
+    const objIdx = engineRef.current.scene.objects.findIndex(obj => obj.material.id === id);
+    if (objIdx === -1) return;
+    setSelectedObject(objIdx);
+    const mat = engineRef.current.scene.objects[objIdx].material;
+    setColor(linearRGBToHex(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]));
+    setRoughness(mat.roughness ?? 0.5);
+    setMetalness(mat.metalness ?? 0);
+  };
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
@@ -594,9 +661,10 @@ export default function Playground() {
 
         // Initialize color picker with first labeled object
         const firstLabeledIdx = scene.objects.findIndex(obj => obj.label);
-        if (firstLabeledIdx !== -1) {
-          const mat = scene.objects[firstLabeledIdx].material;
-          setSelectedObject(firstLabeledIdx);
+        const initIdx = firstLabeledIdx !== -1 ? firstLabeledIdx : 0;
+        if (scene.objects.length > 0) {
+          const mat = scene.objects[initIdx].material;
+          setSelectedObject(initIdx);
           setColor(linearRGBToHex(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]));
           setRoughness(mat.roughness ?? 0.5);
           setMetalness(mat.metalness ?? 0);
@@ -629,7 +697,7 @@ export default function Playground() {
       {webgpuSupported ? (
         <>
           {showPerformanceWarning && <VulkanWarning />}
-          <canvas ref={canvasRef} width="1024" height="1024" style={{ background: 'black', display: 'block', margin: '0 auto' }}></canvas>
+          <canvas ref={canvasRef} width="1024" height="1024" style={{ background: 'black', display: 'block', margin: '0 auto', cursor: 'crosshair' }} onClick={handleCanvasClick}></canvas>
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', alignItems: 'flex-start', marginTop: '8px' }}>
             <label htmlFor="animatingCheckbox" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -670,30 +738,7 @@ export default function Playground() {
 
           {sceneReady && (
             <div style={{ maxWidth: '400px' }}>
-              <h3>Material Editor</h3>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label htmlFor="objectSelect">Object: </label>
-                <select
-                  id="objectSelect"
-                  value={selectedObject}
-                  onChange={(e) => {
-                    const idx = parseInt(e.target.value);
-                    setSelectedObject(idx);
-                    const scene = engineRef.current?.scene;
-                    if (scene && idx >= 0 && idx < scene.objects.length) {
-                      const mat = scene.objects[idx].material;
-                      setColor(linearRGBToHex(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]));
-                      setRoughness(mat.roughness ?? 0.5);
-                      setMetalness(mat.metalness ?? 0);
-                    }
-                  }}
-                >
-                  {engineRef.current?.scene.objects.map((obj, idx) => (
-                    obj.label ? <option key={idx} value={idx}>{obj.label}</option> : null
-                  ))}
-                </select>
-              </div>
+              <h3>Material Editor — {engineRef.current?.scene.objects[selectedObject]?.label}</h3>
 
               <div style={{ marginBottom: '10px' }}>
                 <label>Color</label><br />
