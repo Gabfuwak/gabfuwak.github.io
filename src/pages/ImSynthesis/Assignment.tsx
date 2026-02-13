@@ -611,31 +611,40 @@ export default function Playground() {
           {showPerformanceWarning && <VulkanWarning />}
           <canvas ref={canvasRef} width="1024" height="1024" style={{ background: 'black', display: 'block', margin: '0 auto' }}></canvas>
 
-          <input
-            type="checkbox"
-            id="animatingCheckbox"
-            checked={isAnimating}
-            onChange={(e) => {
-              const val = e.target.checked;
-              setIsAnimating(val);
-              if (val) engineRef.current?.startAnimation();
-              else { engineRef.current?.stopAnimation(); engineRef.current?.render(); }
-            }}
-          />
-          <label htmlFor="animatingCheckbox">Light animation</label>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', alignItems: 'flex-start', marginTop: '8px' }}>
+            <label htmlFor="animatingCheckbox" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                type="checkbox"
+                id="animatingCheckbox"
+                checked={isAnimating}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setIsAnimating(val);
+                  if (val) engineRef.current?.startAnimation();
+                  else { engineRef.current?.stopAnimation(); engineRef.current?.render(); }
+                }}
+              />
+              Light animation
+            </label>
 
-          <input
-            type="checkbox"
-            id="raytracingCheckbox"
-            checked={useRaytracer}
-            onChange={(e) => {
-              const val = e.target.checked;
-              setUseRaytracer(val);
-              engineRef.current?.setUseRaytracer(val);
-              engineRef.current?.render();
-            }}
-          />
-          <label htmlFor="raytracingCheckbox">Raytraced</label>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+              <label htmlFor="raytracingCheckbox" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="checkbox"
+                  id="raytracingCheckbox"
+                  checked={useRaytracer}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setUseRaytracer(val);
+                    engineRef.current?.setUseRaytracer(val);
+                    engineRef.current?.render();
+                  }}
+                />
+                Raytraced
+              </label>
+              <span style={{ color: 'red', fontSize: '0.75em' }}>at your own risk</span>
+            </div>
+          </div>
 
           <br /><br />
 
