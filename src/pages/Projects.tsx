@@ -19,7 +19,7 @@ export default function Projects() {
           <em>University project in my Image Synthesis class, it's supposed to handle millions of light sources!</em>
         </li>
 
-        <li><strong>This website!!</strong>
+        <li><strong><a href='https://github.com/Gabfuwak/gabfuwak.github.io'>This website!!</a></strong>
           <br />
           <em>With WebGPU more impressive than my web design skills! If you get lost, you might find a secret...</em> </li>
       </ul>
