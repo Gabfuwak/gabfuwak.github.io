@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { HexColorPicker } from 'react-colorful';
 import { load_mesh, create_quad, get_mat } from '../../utils/mesh_gen';
 import dragonObj from '../../assets/dragon_2348.obj?raw';
 import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP} from '../../utils/webgpu';
@@ -7,7 +8,6 @@ import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 import shaderCode from '../../shaders/assignment.wgsl?raw';
 import noiseShaderCode from '../../shaders/noise.wgsl?raw';
-import { rgbToOklab, oklabToRgb } from '../../utils/colorSpaceUtils';
 
 // ---------------------------------------------------------------------------
 // Scene definition
@@ -520,6 +520,30 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 }
 
 // ---------------------------------------------------------------------------
+// Color helpers (linear RGB ↔ sRGB hex)
+// ---------------------------------------------------------------------------
+
+const sRGBToLinear = (c: number) =>
+  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+
+const linearToSRGB = (c: number) => {
+  const v = Math.max(0, Math.min(1, c));
+  return v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+};
+
+const hexToLinearRGB = (hex: string): [number, number, number] => {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  return [sRGBToLinear(r), sRGBToLinear(g), sRGBToLinear(b)];
+};
+
+const linearRGBToHex = (r: number, g: number, b: number): string => {
+  const toHex = (c: number) => Math.round(linearToSRGB(c) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+// ---------------------------------------------------------------------------
 // React component
 // ---------------------------------------------------------------------------
 
@@ -530,25 +554,24 @@ export default function Playground() {
   const [useRaytracer, setUseRaytracer] = useState(false);
   const [sceneReady, setSceneReady] = useState(false);
   const [selectedObject, setSelectedObject] = useState<number>(-1);
-  const [oklabL, setOklabL] = useState(0.6);
-  const [oklabA, setOklabA] = useState(0.15);
-  const [oklabB, setOklabB] = useState(0.08);
+  const [color, setColor] = useState('#cc3300');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [roughness, setRoughness] = useState(0.5);
   const [metalness, setMetalness] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
-  const previewColor = useMemo(() => {
-    const [r, g, b] = oklabToRgb(oklabL, oklabA, oklabB);
-    const toSRGB = (c: number) => {
-      const linear = Math.max(0, Math.min(1, c));
-      return linear <= 0.0031308
-        ? linear * 12.92
-        : 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
     };
-    return `rgb(${Math.round(toSRGB(r) * 255)}, ${Math.round(toSRGB(g) * 255)}, ${Math.round(toSRGB(b) * 255)})`;
-  }, [oklabL, oklabA, oklabB]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -573,11 +596,8 @@ export default function Playground() {
         const firstLabeledIdx = scene.objects.findIndex(obj => obj.label);
         if (firstLabeledIdx !== -1) {
           const mat = scene.objects[firstLabeledIdx].material;
-          const [l, a, b] = rgbToOklab(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]);
           setSelectedObject(firstLabeledIdx);
-          setOklabL(l);
-          setOklabA(a);
-          setOklabB(b);
+          setColor(linearRGBToHex(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]));
           setRoughness(mat.roughness ?? 0.5);
           setMetalness(mat.metalness ?? 0);
         }
@@ -650,7 +670,7 @@ export default function Playground() {
 
           {sceneReady && (
             <div style={{ maxWidth: '400px' }}>
-              <h3>OKLab Color Picker</h3>
+              <h3>Material Editor</h3>
 
               <div style={{ marginBottom: '10px' }}>
                 <label htmlFor="objectSelect">Object: </label>
@@ -663,10 +683,7 @@ export default function Playground() {
                     const scene = engineRef.current?.scene;
                     if (scene && idx >= 0 && idx < scene.objects.length) {
                       const mat = scene.objects[idx].material;
-                      const [l, a, b] = rgbToOklab(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]);
-                      setOklabL(l);
-                      setOklabA(a);
-                      setOklabB(b);
+                      setColor(linearRGBToHex(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]));
                       setRoughness(mat.roughness ?? 0.5);
                       setMetalness(mat.metalness ?? 0);
                     }
@@ -678,69 +695,26 @@ export default function Playground() {
                 </select>
               </div>
 
-              <div style={{
-                width: '100px',
-                height: '100px',
-                border: '2px solid #333',
-                marginBottom: '15px',
-                backgroundColor: previewColor,
-              }} />
-
               <div style={{ marginBottom: '10px' }}>
-                <label htmlFor="oklabL">Lightness: {oklabL.toFixed(2)}</label><br />
-                <input
-                  type="range"
-                  id="oklabL"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={oklabL}
-                  onChange={(e) => {
-                    const l = parseFloat(e.target.value);
-                    setOklabL(l);
-                    const [r, g, b] = oklabToRgb(l, oklabA, oklabB);
-                    engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
-                  }}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label htmlFor="oklabA">a (green ← → red): {oklabA.toFixed(2)}</label><br />
-                <input
-                  type="range"
-                  id="oklabA"
-                  min="-0.4"
-                  max="0.4"
-                  step="0.01"
-                  value={oklabA}
-                  onChange={(e) => {
-                    const a = parseFloat(e.target.value);
-                    setOklabA(a);
-                    const [r, g, b] = oklabToRgb(oklabL, a, oklabB);
-                    engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
-                  }}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label htmlFor="oklabB">b (blue ← → yellow): {oklabB.toFixed(2)}</label><br />
-                <input
-                  type="range"
-                  id="oklabB"
-                  min="-0.4"
-                  max="0.4"
-                  step="0.01"
-                  value={oklabB}
-                  onChange={(e) => {
-                    const bVal = parseFloat(e.target.value);
-                    setOklabB(bVal);
-                    const [r, g, b] = oklabToRgb(oklabL, oklabA, bVal);
-                    engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
-                  }}
-                  style={{ width: '100%' }}
-                />
+                <label>Color</label><br />
+                <div ref={pickerRef} style={{ position: 'relative', display: 'inline-block', marginTop: '4px' }}>
+                  <div
+                    onClick={() => setPickerOpen(v => !v)}
+                    style={{ width: '36px', height: '36px', background: color, border: '2px solid #555', borderRadius: '4px', cursor: 'pointer' }}
+                  />
+                  {pickerOpen && (
+                    <div style={{ position: 'absolute', top: '44px', left: 0, zIndex: 100 }}>
+                      <HexColorPicker
+                        color={color}
+                        onChange={(hex) => {
+                          setColor(hex);
+                          const [r, g, b] = hexToLinearRGB(hex);
+                          engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div style={{ marginBottom: '10px' }}>
@@ -755,7 +729,7 @@ export default function Playground() {
                   onChange={(e) => {
                     const r = parseFloat(e.target.value);
                     setRoughness(r);
-                    const [red, green, blue] = oklabToRgb(oklabL, oklabA, oklabB);
+                    const [red, green, blue] = hexToLinearRGB(color);
                     engineRef.current?.updateMaterial(selectedObject, [red, green, blue], r, metalness);
                   }}
                   style={{ width: '100%' }}
@@ -774,7 +748,7 @@ export default function Playground() {
                   onChange={(e) => {
                     const m = parseFloat(e.target.value);
                     setMetalness(m);
-                    const [red, green, blue] = oklabToRgb(oklabL, oklabA, oklabB);
+                    const [red, green, blue] = hexToLinearRGB(color);
                     engineRef.current?.updateMaterial(selectedObject, [red, green, blue], roughness, m);
                   }}
                   style={{ width: '100%' }}
