@@ -6,6 +6,7 @@ import { type Scene, type Light, type Material} from '../../utils/scene';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 import shaderCode from '../../shaders/assignment.wgsl?raw';
+import noiseShaderCode from '../../shaders/noise.wgsl?raw';
 import { rgbToOklab, oklabToRgb } from '../../utils/colorSpaceUtils';
 
 // ---------------------------------------------------------------------------
@@ -81,22 +82,32 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
   ];
 
   const whiteMaterial: Material = {
+      id: 0,
       diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]),
       roughness: 0,
       metalness: 0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
   };
   const redMaterial:   Material = {
+      id: 1,
       diffuseAlbedo: new Float32Array([0.65, 0.05, 0.05]),
       roughness: 0,
       metalness: 0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
   };
   const greenMaterial: Material = {
+      id: 2,
       diffuseAlbedo: new Float32Array([0.12, 0.45, 0.15]),
       roughness: 0,
       metalness: 0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+  };
+  const noisyDragonMaterial: Material = {
+      id: 3,
+      diffuseAlbedo: new Float32Array([0.8, 0.0, 0.0]),
+      roughness: 0,
+      metalness: 0,
+      fresnel: new Float32Array([0.05, 0.05, 0.05]),
   };
 
   const identityTransform = new Float32Array([
@@ -164,8 +175,8 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
     // Stanford dragon
     {
       mesh: load_mesh(dragonObj, [0.8, 0.2, 0.2]),
-      material: { diffuseAlbedo: new Float32Array([0.8, 0.2, 0.2]), roughness: 0.5, metalness: 0, fresnel: new Float32Array([0.05, 0.05, 0.05]) },
-      transform: get_mat({ translation: [279, 137, 269], rotation: [0, Math.PI / 4, 0], scale: 70 }),
+      material: noisyDragonMaterial,
+      transform: get_mat({ translation: [279, 115, 269], rotation: [0, Math.PI / 4, 0], scale: 2 }),
       label: "Dragon",
     },
   ];
@@ -194,7 +205,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   const { device, context, _adapter } = await initWebGPU(canvas);
 
   const merged = extractSceneData(scene);
-  const { positions: vertexPositions, indices: indexData, objectIds, normals: vertexNormals, materials } = merged;
+  const { positions: vertexPositions, indices: indexData, uvs: vertexUVs, objectIds, normals: vertexNormals, materials } = merged;
 
   // ----- Buffers -----
 
@@ -218,11 +229,17 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     size: vertexNormals.byteLength,
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
   });
+  const uvBuffer = device.createBuffer({
+    label: "Vertex UVs",
+    size: vertexUVs.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
+  });
 
   device.queue.writeBuffer(vertexBuffer, 0, vertexPositions.buffer, vertexPositions.byteOffset, vertexPositions.byteLength);
   device.queue.writeBuffer(indexBuffer, 0, indexData.buffer, indexData.byteOffset, indexData.byteLength);
   device.queue.writeBuffer(objectIdBuffer, 0, objectIds.buffer, objectIds.byteOffset, objectIds.byteLength);
   device.queue.writeBuffer(normalBuffer, 0, vertexNormals.buffer, vertexNormals.byteOffset, vertexNormals.byteLength);
+  device.queue.writeBuffer(uvBuffer, 0, vertexUVs.buffer, vertexUVs.byteOffset, vertexUVs.byteLength);
 
   // ----- Uniforms -----
 
@@ -285,7 +302,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
-  const shaderModule = device.createShaderModule({ label: "Shader", code: shaderCode });
+  const shaderModule = device.createShaderModule({ label: "Shader", code: noiseShaderCode.concat(shaderCode)});
 
   const bindGroupLayout = device.createBindGroupLayout({
     entries: [
@@ -294,6 +311,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       { binding: 2, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       { binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       { binding: 4, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 5, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
     ] as GPUBindGroupLayoutEntry[],
   });
 
@@ -305,6 +323,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       { binding: 2, resource: { buffer: indexBuffer } },
       { binding: 3, resource: { buffer: objectIdBuffer } },
       { binding: 4, resource: { buffer: normalBuffer } },
+      { binding: 5, resource: { buffer: uvBuffer } },
     ],
   });
 

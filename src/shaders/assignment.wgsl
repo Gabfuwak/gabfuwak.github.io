@@ -40,6 +40,7 @@ struct Uniforms {
 @group(0) @binding(2) var<storage, read>    indices   : array<u32>;
 @group(0) @binding(3) var<storage, read>    objectIds : array<u32>;
 @group(0) @binding(4) var<storage, read>    normals   : array<f32>;
+@group(0) @binding(5) var<storage, read>    uvs       : array<f32>;
 
 
 // ============================================================================
@@ -141,6 +142,7 @@ struct RastVertexOutput {
   @location(0) @interpolate(flat) objectId: u32,
   @location(1) normal: vec4f,
   @location(2) worldPos: vec4f,
+  @location(3) uv: vec2f,
 };
 
 @vertex
@@ -148,6 +150,7 @@ fn rastVertexMain(@builtin(vertex_index) vid: u32) -> RastVertexOutput {
   let idx = indices[vid];
   let pos    = vec3f(vertices[idx*3u], vertices[idx*3u+1u], vertices[idx*3u+2u]);
   let normal = vec3f(normals[idx*3u],  normals[idx*3u+1u],  normals[idx*3u+2u]);
+  let uv     = vec2f(uvs[idx*2u], uvs[idx*2u+1u]);
   let objId  = objectIds[idx];
 
   var output: RastVertexOutput;
@@ -155,6 +158,7 @@ fn rastVertexMain(@builtin(vertex_index) vid: u32) -> RastVertexOutput {
   output.worldPos = vec4f(pos, 1.0);
   output.objectId = objId;
   output.normal   = vec4f(normal, 0.0);
+  output.uv       = uv;
   return output;
 }
 
@@ -166,7 +170,7 @@ fn rastFragmentMain(input: RastVertexOutput) -> @location(0) vec4f {
     return vec4f(output_color, 1.0);
   }
 
-  let material = uniforms.materials[input.objectId];
+  let material = resolve_material(input.objectId, input.uv);
   let viewDir  = normalize(uniforms.camera_pos - input.worldPos.xyz);
 
   for(var i = 0u; i < u32(uniforms.nbLights); i++) {
@@ -207,9 +211,23 @@ struct Hit {
 struct SurfacePoint {
   world_pos: vec3f,
   normal:    vec3f,
+  uv:    vec2f,
   objectId:  u32,
   material:  Material,
 };
+
+fn resolve_material(material_id: u32, uv: vec2f) -> Material {
+  switch(material_id) {
+    case 3u: {
+      var mat = uniforms.materials[material_id];
+      mat.baseColor += vec3f(octavePerlin2D(uv, 6, 0.6, 5));
+      mat.roughness += octavePerlin2D(uv + 1.0, 6, 1, 5);
+      mat.metalness += octavePerlin2D(uv + 2.0, 6, 1, 5);
+      return mat;
+    }
+    default: { return uniforms.materials[material_id]; }
+  }
+}
 
 fn resolve_hit(hit: Hit) -> SurfacePoint {
   let i0 = indices[hit.triIndex * 3u];
@@ -226,11 +244,17 @@ fn resolve_hit(hit: Hit) -> SurfacePoint {
   let n1 = vec3f(normals[i1*3u], normals[i1*3u+1u], normals[i1*3u+2u]);
   let n2 = vec3f(normals[i2*3u], normals[i2*3u+1u], normals[i2*3u+2u]);
 
+
+  let uv0 = vec2f(uvs[i0*2u], uvs[i0*2u+1u]);
+  let uv1 = vec2f(uvs[i1*2u], uvs[i1*2u+1u]);
+  let uv2 = vec2f(uvs[i2*2u], uvs[i2*2u+1u]);
+
   var sp: SurfacePoint;
   sp.world_pos = bary.x * p0 + bary.y * p1 + bary.z * p2;
   sp.normal    = normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
+  sp.uv = bary.x * uv0 + bary.y * uv1 + bary.z * uv2;
   sp.objectId  = objectIds[i0];
-  sp.material  = uniforms.materials[sp.objectId];
+  sp.material  = resolve_material(sp.objectId, sp.uv);
   return sp;
 }
 
