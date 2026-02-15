@@ -105,8 +105,8 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
   const noisyDragonMaterial: Material = {
       id: 3,
       diffuseAlbedo: new Float32Array([0.8, 0.0, 0.0]),
-      roughness: 0,
-      metalness: 0.8,
+      roughness: 0.2,
+      metalness: 0.1,
       fresnel: new Float32Array([0.05, 0.05, 0.05]),
   };
 
