@@ -9,6 +9,11 @@ fn random(t: vec2<f32>) -> f32 {
   return f32(seed) / f32(0xFFFFFFFFu);
 }
 
+fn random3D(t: vec3f) -> f32 {
+  let seed = pcg_hash(bitcast<u32>(t.x) ^ pcg_hash(bitcast<u32>(t.y) ^ pcg_hash(bitcast<u32>(t.z))));
+  return f32(seed) / f32(0xFFFFFFFFu);
+}
+
 
 fn valueNoise2D(x: vec2<f32>, freq: f32, amp: f32) -> f32{
   let pos_abs = x * freq;
@@ -36,7 +41,14 @@ fn gradient2D(p: vec2f) -> vec2f {
   return vec2f(cos(phi), sin(phi));
 }
 
-// let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+fn gradient3D(p: vec3f) -> vec3f {
+  // sample from sphere, similar to gradient 2d
+  let phi       = random3D(p)              * 6.28318530718;
+  let cos_theta = random3D(p + vec3f(1.0)) * 2.0 - 1.0;
+  let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+  return vec3f(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+}
+
 fn perlinNoise2D(x: vec2f, freq: f32, amp: f32) -> f32 {
   let pos_abs = x * freq;
   let pos_grid = floor(pos_abs);
@@ -75,6 +87,55 @@ fn octaveValue2D(x: vec2f, freq: f32, amp: f32, octaves: u32) -> f32 {
   var ret : f32 = 0.0;
   for(var i = 1u; i <= octaves; i++){
     ret += valueNoise2D(x, freq*pow(f32(i), 2), amp/pow(f32(i), 2));
+  }
+  return ret;
+}
+
+
+fn perlinNoise3D(x: vec3f, freq: f32, amp: f32) -> f32 {
+  let pos_abs = x * freq;
+  let pos_grid = floor(pos_abs);
+  let pos_rel = pos_abs - pos_grid;
+
+  let g000 = gradient3D(pos_grid);
+  let g100 = gradient3D(pos_grid + vec3f(1.0, 0.0, 0.0));
+  let g010 = gradient3D(pos_grid + vec3f(0.0, 1.0, 0.0));
+  let g110 = gradient3D(pos_grid + vec3f(1.0, 1.0, 0.0));
+  let g001 = gradient3D(pos_grid + vec3f(0.0, 0.0, 1.0));
+  let g101 = gradient3D(pos_grid + vec3f(1.0, 0.0, 1.0));
+  let g011 = gradient3D(pos_grid + vec3f(0.0, 1.0, 1.0));
+  let g111 = gradient3D(pos_grid + vec3f(1.0, 1.0, 1.0));
+
+  let v000 = dot(g000, pos_rel);
+  let v100 = dot(g100, pos_rel - vec3f(1.0, 0.0, 0.0));
+  let v010 = dot(g010, pos_rel - vec3f(0.0, 1.0, 0.0));
+  let v110 = dot(g110, pos_rel - vec3f(1.0, 1.0, 0.0));
+  let v001 = dot(g001, pos_rel - vec3f(0.0, 0.0, 1.0));
+  let v101 = dot(g101, pos_rel - vec3f(1.0, 0.0, 1.0));
+  let v011 = dot(g011, pos_rel - vec3f(0.0, 1.0, 1.0));
+  let v111 = dot(g111, pos_rel - vec3f(1.0, 1.0, 1.0));
+
+  let t = pos_rel * pos_rel * pos_rel * (pos_rel * (pos_rel * 6.0 - 15.0) + 10.0);
+
+  let v00 = mix(v000, v001, t.z);
+  let v10 = mix(v100, v101, t.z);
+
+  let v01 = mix(v010, v011, t.z);
+  let v11 = mix(v110, v111, t.z);
+
+
+  // interpolate both values on y axis
+  let value_0x = mix(v00, v01, t.y);
+  let value_1x = mix(v10, v11, t.y);
+
+  // return interpolation on x axis
+  return mix(value_0x, value_1x, t.x) * amp;
+}
+
+fn octavePerlin3D(x: vec3f, freq: f32, amp: f32, octaves: u32) -> f32 {
+  var ret : f32 = 0.0;
+  for(var i = 1u; i <= octaves; i++){
+    ret += perlinNoise3D(x, freq*pow(f32(i), 2), amp/pow(f32(i), 2));
   }
   return ret;
 }

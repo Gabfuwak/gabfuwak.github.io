@@ -251,7 +251,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   const SHARED_HEADER = 4; // camera_pos (vec3) + nbLights (f32)
   const LIGHTS_SIZE = MAX_LIGHTS * 12;
   const MATERIALS_HEADER = 4; // nbMaterials + 3 padding floats
-  const RAY_CAMERA_SIZE = 12; // forward+fov, right+aspect, up+pad
+  const RAY_CAMERA_SIZE = 12; // forward+fov, right+aspect, up+time
   const RAY_OFFSET = MVP_SIZE + SHARED_HEADER + LIGHTS_SIZE + MATERIALS_HEADER + MAX_MATERIALS * MATERIAL_SIZE;
   const UNIFORM_LENGTH = RAY_OFFSET + RAY_CAMERA_SIZE;
 
@@ -277,7 +277,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     }
   };
 
-  const packUniforms = (): Float32Array<ArrayBuffer> => {
+  const packUniforms = (time = 0): Float32Array<ArrayBuffer> => {
     const data = new Float32Array(UNIFORM_LENGTH);
     // Rasterizer MVP (indices 0-15)
     data.set(getMVP(scene.camera), 0);
@@ -288,7 +288,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     const fovFactor = Math.tan(scene.camera.fov / 2);
     data.set([...basis.forward, fovFactor], RAY_OFFSET);
     data.set([...basis.right, scene.camera.aspect], RAY_OFFSET + 4);
-    data.set([...basis.up, 0], RAY_OFFSET + 8);
+    data.set([...basis.up, time], RAY_OFFSET + 8);
     return data;
   };
 
@@ -397,15 +397,16 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   let frameCount = 0;
   const startTime = performance.now();
 
-  const updateUniforms = () => {
-    device.queue.writeBuffer(uniformBuffer, 0, packUniforms());
+  const updateUniforms = (time = 0) => {
+    device.queue.writeBuffer(uniformBuffer, 0, packUniforms(time));
   };
 
   const renderFrame = (timestamp: number) => {
     if (destroyed) return;
 
+    const elapsed = (timestamp - startTime) / 1000;
+
     if (animating) {
-      const elapsed = (timestamp - startTime) / 1000;
       const angle = elapsed * 1.25; // matches solution: angle = time_ms / 800
       const lx = 278 + 220 * Math.cos(angle);
       const lz = 280 + 220 * Math.sin(angle);
@@ -416,7 +417,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       scene.lights[3].direction.set([dx / len, dy / len, dz / len]);
     }
 
-    updateUniforms();
+    updateUniforms(elapsed);
 
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -454,18 +455,15 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   const animationLoop = (timestamp: number) => {
     if (destroyed) return;
     renderFrame(timestamp);
-    if (animating) {
-      animFrameId = requestAnimationFrame(animationLoop);
-    }
+    animFrameId = requestAnimationFrame(animationLoop);
   };
 
+  animFrameId = requestAnimationFrame(animationLoop);
+
   // ----- FPS monitor -----
-  // Passively counts frames rendered by any source (animation, material updates, etc.).
-  // Only drives its own rAF loop when nothing else is rendering.
 
   let fpsTimeout = 0;
   let fpsMeasuring = false;
-  let fpsAnimFrameId = 0;
 
   const startFPSMonitor = (onResult: (fps: number) => void) => {
     stopFPSMonitor();
@@ -476,16 +474,6 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       const startCount = frameCount;
       const measureStart = performance.now();
       const duration = 2000;
-
-      // If nothing else is driving renders, pump frames ourselves.
-      const pumpLoop = (timestamp: number) => {
-        if (destroyed || !fpsMeasuring) return;
-        if (!animating) renderFrame(timestamp);
-        if (performance.now() - measureStart < duration) {
-          fpsAnimFrameId = requestAnimationFrame(pumpLoop);
-        }
-      };
-      fpsAnimFrameId = requestAnimationFrame(pumpLoop);
 
       fpsTimeout = window.setTimeout(() => {
         if (destroyed || !fpsMeasuring) return;
@@ -503,8 +491,6 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   const stopFPSMonitor = () => {
     fpsMeasuring = false;
     clearTimeout(fpsTimeout);
-    cancelAnimationFrame(fpsAnimFrameId);
-    fpsAnimFrameId = 0;
   };
 
   // ----- Public API -----
@@ -518,13 +504,10 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
     startAnimation() {
       animating = true;
-      animFrameId = requestAnimationFrame(animationLoop);
     },
 
     stopAnimation() {
       animating = false;
-      cancelAnimationFrame(animFrameId);
-      animFrameId = 0;
     },
 
     setUseRaytracer(val: boolean) {
@@ -672,7 +655,6 @@ export default function Playground() {
         setSceneReady(true);
 
         engine.startFPSMonitor(fps => setShowPerformanceWarning(fps < 30));
-        engine.render();
       } catch (error) {
         console.error("WebGPU initialization failed:", error);
         setWebgpuSupported(false);
@@ -709,7 +691,7 @@ export default function Playground() {
                   const val = e.target.checked;
                   setIsAnimating(val);
                   if (val) engineRef.current?.startAnimation();
-                  else { engineRef.current?.stopAnimation(); engineRef.current?.render(); }
+                  else engineRef.current?.stopAnimation();
                 }}
               />
               Light animation
@@ -725,7 +707,6 @@ export default function Playground() {
                     const val = e.target.checked;
                     setUseRaytracer(val);
                     engineRef.current?.setUseRaytracer(val);
-                    engineRef.current?.render();
                   }}
                 />
                 Raytraced

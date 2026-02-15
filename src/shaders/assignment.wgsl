@@ -32,7 +32,7 @@ struct Uniforms {
   camera_right: vec3f,
   aspect_ratio: f32,
   camera_up: vec3f,
-  _pad_ray: f32,
+  time: f32,
 };
 
 @group(0) @binding(0) var<uniform>          uniforms  : Uniforms;
@@ -220,9 +220,10 @@ fn resolve_material(material_id: u32, uv: vec2f) -> Material {
   switch(material_id) {
     case 3u: {
       var mat = uniforms.materials[material_id];
-      mat.baseColor += vec3f(octavePerlin2D(uv, 6, 0.6, 5));
-      mat.roughness += octavePerlin2D(uv + 1.0, 6, 1, 5);
-      mat.metalness += octavePerlin2D(uv + 2.0, 6, 1, 5);
+      let t = uniforms.time * 0.03;
+      mat.baseColor += vec3f(octavePerlin3D(vec3f(uv, t), 10, 0.9, 5));
+      mat.roughness += octavePerlin3D(vec3f(uv + 1.0, t), 10, 1, 5);
+      mat.metalness += octavePerlin3D(vec3f(uv + 2.0, t), 10, 0.4, 5);
       return mat;
     }
     default: { return uniforms.materials[material_id]; }
