@@ -14,6 +14,17 @@ struct Material{
   metalness: f32,
 }
 
+struct BVHNode{
+  minCorner: vec3<f32>,
+  isLeaf: u32,
+  maxCorner: vec3<f32>,
+  triangleIdx: u32,
+  leftChildIdx: u32,
+  rightChildIdx: u32,
+  _pad0: u32,
+  _pad1: u32,
+}
+
 struct Uniforms {
   // Rasterizer (indices 0-15)
   mvp: mat4x4<f32>,
@@ -41,6 +52,7 @@ struct Uniforms {
 @group(0) @binding(3) var<storage, read>    objectIds : array<u32>;
 @group(0) @binding(4) var<storage, read>    normals   : array<f32>;
 @group(0) @binding(5) var<storage, read>    uvs       : array<f32>;
+@group(0) @binding(6) var<storage, read>    bvh       : array<BVHNode>;
 
 
 // ============================================================================
@@ -273,47 +285,97 @@ fn ray_at(screenCoord: vec2<f32>) -> Ray {
   return output;
 }
 
+fn rayBoxHit(ray: Ray, box: BVHNode) -> bool {
+  var tmin = 0.0f;
+  var tmax = 1e30;
+
+  for(var i = 0; i < 3; i++){
+    let t1 = (box.minCorner[i] - ray.origin[i]) / ray.direction[i];
+    let t2 = (box.maxCorner[i] - ray.origin[i]) / ray.direction[i];
+
+    tmin = max(tmin, min(t1, t2));
+    tmax = min(tmax, max(t1, t2));
+  }
+  return tmax >= tmin && tmax >= 0.0f;
+}
+
+fn rayTriangleHit(ray: Ray, tri_idx: u32) -> Hit {
+  let i0 = indices[tri_idx * 3u];
+  let i1 = indices[tri_idx * 3u + 1u];
+  let i2 = indices[tri_idx * 3u + 2u];
+
+  let v0 = vec3f(vertices[i0*3u], vertices[i0*3u+1u], vertices[i0*3u+2u]);
+  let v1 = vec3f(vertices[i1*3u], vertices[i1*3u+1u], vertices[i1*3u+2u]);
+  let v2 = vec3f(vertices[i2*3u], vertices[i2*3u+1u], vertices[i2*3u+2u]);
+
+  let e1 = v1 - v0;
+  let e2 = v2 - v0;
+
+  let P   = cross(ray.direction, e2);
+  let det = dot(e1, P);
+
+  var no_hit: Hit;
+  no_hit.t = -1.0;
+
+  if (abs(det) < 0.00001) { return no_hit; }
+
+  let inv_det = 1.0 / det;
+  let T = ray.origin - v0;
+  let u = dot(T, P) * inv_det;
+
+  if (u < 0.0 || u > 1.0) { return no_hit; }
+
+  let Q = cross(T, e1);
+  let v = dot(ray.direction, Q) * inv_det;
+
+  if (v < 0.0 || u + v > 1.0) { return no_hit; }
+
+  let t = dot(e2, Q) * inv_det;
+
+  if (t <= 0.00001) { return no_hit; }
+
+  var hit: Hit;
+  hit.triIndex = tri_idx;
+  hit.barycentricCoords = vec3(1.0 - u - v, u, v);
+  hit.t = t;
+  return hit;
+}
+
 fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
   var closest_t = 1e30;
   var found_hit = false;
 
-  let num_triangles = arrayLength(&indices) / 3u;
-  for (var tri_idx = 0u; tri_idx < num_triangles; tri_idx++) {
-    let i0 = indices[tri_idx * 3u + 0u];
-    let i1 = indices[tri_idx * 3u + 1u];
-    let i2 = indices[tri_idx * 3u + 2u];
+  var stack: array<u32, 64>;
+  var stack_ptr: i32 = 0;
 
-    let v0 = vec3f(vertices[i0*3u], vertices[i0*3u+1u], vertices[i0*3u+2u]);
-    let v1 = vec3f(vertices[i1*3u], vertices[i1*3u+1u], vertices[i1*3u+2u]);
-    let v2 = vec3f(vertices[i2*3u], vertices[i2*3u+1u], vertices[i2*3u+2u]);
+  stack[0] = 0u;
+  stack_ptr = 1;
 
-    let e1 = v1 - v0;
-    let e2 = v2 - v0;
+  while (stack_ptr > 0) {
+    stack_ptr -= 1;
+    let curr_node_idx = stack[stack_ptr];
 
-    let P   = cross(ray.direction, e2);
-    let det = dot(e1, P);
+    if (bvh[curr_node_idx].isLeaf != 0u) {
+      let candidate = rayTriangleHit(ray, bvh[curr_node_idx].triangleIdx);
 
-    if (abs(det) < 0.00001) { continue; }
+      if (candidate.t > 0.0 && candidate.t < closest_t) {
+        closest_t = candidate.t;
+        found_hit = true;
+        *hit = candidate;
+      }
+    } else {
+      let rightChild = bvh[curr_node_idx].rightChildIdx;
+      let leftChild  = bvh[curr_node_idx].leftChildIdx;
 
-    let inv_det = 1.0 / det;
-    let T = ray.origin - v0;
-    let u = dot(T, P) * inv_det;
+      if (rayBoxHit(ray, bvh[rightChild])) {
+        stack[stack_ptr] = rightChild;
+        stack_ptr += 1;
+      }
 
-    if (u < 0.0 || u > 1.0) { continue; }
-
-    let Q = cross(T, e1);
-    let v = dot(ray.direction, Q) * inv_det;
-
-    if (v < 0.0 || u + v > 1.0) { continue; }
-
-    let t = dot(e2, Q) * inv_det;
-
-    if (t > 0.00001 && t < closest_t) {
-      closest_t = t;
-      found_hit = true;
-      (*hit).triIndex          = tri_idx;
-      (*hit).barycentricCoords = vec3(1.0 - u - v, u, v);
-      (*hit).t                 = closest_t;
+      if (rayBoxHit(ray, bvh[leftChild])) {
+        stack[stack_ptr] = leftChild;
+        stack_ptr += 1;
+      }
     }
   }
 
@@ -338,8 +400,8 @@ fn rayVertexMain(@builtin(vertex_index) vid: u32) -> RayVertexOutput {
 // Picking
 // ============================================================================
 
-@group(0) @binding(6) var<uniform>             pick_coords : vec2f;
-@group(0) @binding(7) var<storage, read_write> pick_result : i32;
+@group(0) @binding(8) var<uniform>             pick_coords : vec2f;
+@group(0) @binding(9) var<storage, read_write> pick_result : i32;
 
 @compute @workgroup_size(1)
 fn pick_main() {

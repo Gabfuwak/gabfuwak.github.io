@@ -4,10 +4,12 @@ import { load_mesh, create_quad, get_mat } from '../../utils/mesh_gen';
 import dragonObj from '../../assets/dragon_2348.obj?raw';
 import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP} from '../../utils/webgpu';
 import { type Scene, type Light, type Material} from '../../utils/scene';
+import { type AABB, createAABBWireframe, buildSceneBVH, type BVHNode, flattenBVH } from '../../utils/cpuBVH';
 import WebGPUWarning from '../../components/WebGPUWarning';
 import VulkanWarning from '../../components/VulkanWarning';
 import shaderCode from '../../shaders/assignment.wgsl?raw';
 import noiseShaderCode from '../../shaders/noise.wgsl?raw';
+import aabbShaderCode from '../../shaders/aabb.wgsl?raw';
 
 // ---------------------------------------------------------------------------
 // Scene definition
@@ -195,6 +197,8 @@ interface Engine {
   stopAnimation(): void;
   setUseRaytracer(val: boolean): void;
   updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number): void;
+  bvhRoot: BVHNode;
+  setDebugAABBs(aabbs: AABB[]): void;
   pickObject(sx: number, sy: number): Promise<number>;
   startFPSMonitor(onResult: (fps: number) => void): void;
   stopFPSMonitor(): void;
@@ -236,11 +240,44 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
   });
 
+  const BVH_FLOATS_PER_NODE = 12; // 10 data + 2 padding to match 48-byte WGSL struct stride
+  const MAX_BVH_NODES = 8192;
+
+  const bvhBuffer = device.createBuffer({
+    label: "BVH nodes",
+    size: MAX_BVH_NODES * BVH_FLOATS_PER_NODE * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+
   device.queue.writeBuffer(vertexBuffer, 0, vertexPositions.buffer, vertexPositions.byteOffset, vertexPositions.byteLength);
   device.queue.writeBuffer(indexBuffer, 0, indexData.buffer, indexData.byteOffset, indexData.byteLength);
   device.queue.writeBuffer(objectIdBuffer, 0, objectIds.buffer, objectIds.byteOffset, objectIds.byteLength);
   device.queue.writeBuffer(normalBuffer, 0, vertexNormals.buffer, vertexNormals.byteOffset, vertexNormals.byteLength);
   device.queue.writeBuffer(uvBuffer, 0, vertexUVs.buffer, vertexUVs.byteOffset, vertexUVs.byteLength);
+
+  const bvhRoot = buildSceneBVH(scene);
+  {
+    const flat = flattenBVH(bvhRoot);
+    const bvhBytes = new ArrayBuffer(flat.length * BVH_FLOATS_PER_NODE * 4);
+    const view = new DataView(bvhBytes);
+    for (let i = 0; i < flat.length; i++) {
+      const n = flat[i];
+      const b = i * BVH_FLOATS_PER_NODE * 4; // byte offset
+      view.setFloat32(b +  0, n.minCorner[0],        true);
+      view.setFloat32(b +  4, n.minCorner[1],        true);
+      view.setFloat32(b +  8, n.minCorner[2],        true);
+      view.setUint32 (b + 12, n.isLeaf ? 1 : 0,      true);
+      view.setFloat32(b + 16, n.maxCorner[0],        true);
+      view.setFloat32(b + 20, n.maxCorner[1],        true);
+      view.setFloat32(b + 24, n.maxCorner[2],        true);
+      view.setUint32 (b + 28, n.triangleIndex >= 0 ? n.triangleIndex : 0, true);
+      view.setUint32 (b + 32, n.leftChild     >= 0 ? n.leftChild     : 0, true);
+      view.setUint32 (b + 36, n.rightChild    >= 0 ? n.rightChild    : 0, true);
+      view.setUint32 (b + 40, 0, true); // _pad0
+      view.setUint32 (b + 44, 0, true); // _pad1
+    }
+    device.queue.writeBuffer(bvhBuffer, 0, bvhBytes);
+  }
 
   // ----- Uniforms -----
 
@@ -313,6 +350,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       { binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       { binding: 4, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       { binding: 5, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 6, visibility: GPUShaderStage.FRAGMENT,                         buffer: { type: "read-only-storage" } },
     ] as GPUBindGroupLayoutEntry[],
   });
 
@@ -325,6 +363,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       { binding: 3, resource: { buffer: objectIdBuffer } },
       { binding: 4, resource: { buffer: normalBuffer } },
       { binding: 5, resource: { buffer: uvBuffer } },
+      { binding: 6, resource: { buffer: bvhBuffer } },
     ],
   });
 
@@ -357,8 +396,9 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       { binding: 1, resource: { buffer: vertexBuffer } },
       { binding: 2, resource: { buffer: indexBuffer } },
       { binding: 3, resource: { buffer: objectIdBuffer } },
-      { binding: 6, resource: { buffer: pickCoordsBuffer } },
-      { binding: 7, resource: { buffer: pickResultBuffer } },
+      { binding: 6, resource: { buffer: bvhBuffer } },
+      { binding: 8, resource: { buffer: pickCoordsBuffer } },
+      { binding: 9, resource: { buffer: pickResultBuffer } },
     ],
   });
 
@@ -388,12 +428,53 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
 
+  // ----- AABB debug pipeline -----
+
+  const MAX_AABB = 10000;
+  const aabbVertexBuffer = device.createBuffer({
+    label: "AABB vertices",
+    size: MAX_AABB * 8 * 3 * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  const aabbIndexBuffer = device.createBuffer({
+    label: "AABB indices",
+    size: MAX_AABB * 24 * 4,
+    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+  });
+
+  const aabbShaderModule = device.createShaderModule({ label: "AABB shader", code: aabbShaderCode });
+
+  const aabbBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+      { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    ] as GPUBindGroupLayoutEntry[],
+  });
+
+  const aabbBindGroup = device.createBindGroup({
+    layout: aabbBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: uniformBuffer } },
+      { binding: 1, resource: { buffer: aabbVertexBuffer } },
+    ],
+  });
+
+  const aabbPipeline = device.createRenderPipeline({
+    label: "AABB pipeline",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [aabbBindGroupLayout] }),
+    vertex:   { module: aabbShaderModule, entryPoint: "aabbVertexMain" },
+    fragment: { module: aabbShaderModule, entryPoint: "aabbFragmentMain", targets: [{ format: canvasFormat }] },
+    primitive: { topology: "line-list" },
+    depthStencil: { format: "depth24plus", depthWriteEnabled: false, depthCompare: "less" },
+  });
+
   // ----- Render state -----
 
   let destroyed = false;
   let useRaytracer = false;
   let animating = false;
   let animFrameId = 0;
+  let aabbIndexCount = 0;
   let frameCount = 0;
   const startTime = performance.now();
 
@@ -443,6 +524,13 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       pass.setPipeline(rastPipeline);
       pass.setBindGroup(0, bindGroup);
       pass.draw(indexData.length);
+    }
+
+    if (!useRaytracer && aabbIndexCount > 0) {
+      pass.setPipeline(aabbPipeline);
+      pass.setBindGroup(0, aabbBindGroup);
+      pass.setIndexBuffer(aabbIndexBuffer, 'uint32');
+      pass.drawIndexed(aabbIndexCount);
     }
 
     pass.end();
@@ -497,6 +585,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   return {
     scene,
+    bvhRoot,
 
     render() {
       if (!destroyed) renderFrame(performance.now());
@@ -540,6 +629,13 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       }
     },
 
+    setDebugAABBs(aabbs: AABB[]) {
+      const { positions, indices } = createAABBWireframe(aabbs);
+      device.queue.writeBuffer(aabbVertexBuffer, 0, positions);
+      device.queue.writeBuffer(aabbIndexBuffer, 0, indices);
+      aabbIndexCount = indices.length;
+    },
+
     startFPSMonitor,
     stopFPSMonitor,
 
@@ -577,6 +673,23 @@ const linearRGBToHex = (r: number, g: number, b: number): string => {
 };
 
 // ---------------------------------------------------------------------------
+// BVH debug helpers
+// ---------------------------------------------------------------------------
+
+function getAABBsAtDepth(node: BVHNode, depth: number): AABB[] {
+  if (depth === 0 || node.kind === "leaf") return [node.boundingBox];
+  return [
+    ...getAABBsAtDepth(node.left, depth - 1),
+    ...getAABBsAtDepth(node.right, depth - 1),
+  ];
+}
+
+function getBVHMaxDepth(node: BVHNode): number {
+  if (node.kind === "leaf") return 0;
+  return 1 + Math.max(getBVHMaxDepth(node.left), getBVHMaxDepth(node.right));
+}
+
+// ---------------------------------------------------------------------------
 // React component
 // ---------------------------------------------------------------------------
 
@@ -592,9 +705,13 @@ export default function Playground() {
   const [roughness, setRoughness] = useState(0.5);
   const [metalness, setMetalness] = useState(0);
 
+  const [bvhDepth, setBvhDepth] = useState(0);
+  const [maxBvhDepth, setMaxBvhDepth] = useState(0);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const dragonBVHRef = useRef<BVHNode | null>(null);
 
   const handleCanvasClick = async (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -641,6 +758,10 @@ export default function Playground() {
         if (cancelled) { engine.destroy(); return; }
 
         engineRef.current = engine;
+
+        dragonBVHRef.current = engine.bvhRoot;
+        setMaxBvhDepth(getBVHMaxDepth(engine.bvhRoot));
+        engine.setDebugAABBs(getAABBsAtDepth(engine.bvhRoot, 0));
 
         // Initialize color picker with first labeled object
         const firstLabeledIdx = scene.objects.findIndex(obj => obj.label);
@@ -716,6 +837,29 @@ export default function Playground() {
           </div>
 
           <br /><br />
+
+          {sceneReady && dragonBVHRef.current && (
+            <div style={{ maxWidth: '400px', marginBottom: '16px' }}>
+              <h3>BVH Debug</h3>
+              <div>
+                <label htmlFor="bvhDepth">Depth: {bvhDepth}</label><br />
+                <input
+                  type="range"
+                  id="bvhDepth"
+                  min="0"
+                  max={maxBvhDepth}
+                  step="1"
+                  value={bvhDepth}
+                  onChange={(e) => {
+                    const d = parseInt(e.target.value);
+                    setBvhDepth(d);
+                    engineRef.current?.setDebugAABBs(getAABBsAtDepth(dragonBVHRef.current!, d));
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+          )}
 
           {sceneReady && (
             <div style={{ maxWidth: '400px' }}>
