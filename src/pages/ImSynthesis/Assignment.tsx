@@ -36,25 +36,25 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
   const lights: Light[] = [
     // Keylight
     {
-        position: new Float32Array([71, 412, -140]),
+        position: new Float32Array([71, 412, 140]),
         color: new Float32Array([1.0, 1.0, 1.0]),
         intensity: 1.5,
         direction: normalize(
           boxCenter[0] - 71,
           boxCenter[1] - 412,
-          boxCenter[2] - (-140)
+          boxCenter[2] - 140
         ),
         angle: 360.0
     },
     // Fill light
     {
-        position: new Float32Array([485, 137, -140]),
+        position: new Float32Array([485, 137, 140]),
         color: new Float32Array([0.0, 0.2, 0.8]),
         intensity: 2.5,
         direction: normalize(
           boxCenter[0] - 485,
           boxCenter[1] - 137,
-          boxCenter[2] - (-140)
+          boxCenter[2] - 140
         ),
         angle: 360.0
     },
@@ -89,7 +89,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
       diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]),
       roughness: 0,
       metalness: 0,
-      fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+      fresnel: new Float32Array([0.9, 0.9, 0.9]), // plastic
   };
   const redMaterial:   Material = {
       id: 1,
@@ -108,9 +108,9 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
   const noisyDragonMaterial: Material = {
       id: 3,
       diffuseAlbedo: new Float32Array([0.8, 0.0, 0.0]),
-      roughness: 0.2,
-      metalness: 0.1,
-      fresnel: new Float32Array([0.05, 0.05, 0.05]),
+      roughness: 0.5,
+      metalness: 1.0,
+      fresnel: new Float32Array([1.0, 0.71, 0.29]),
   };
 
   const identityTransform = new Float32Array([
@@ -175,6 +175,15 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
       ),
       material: redMaterial, transform: identityTransform, label: "Left wall",
     },
+    // Cornell Box - Front wall
+    {
+      mesh: create_quad(
+        [556.0, 548.8, 0.0], [0.0, 548.8, 0.0],
+        [0.0, 0.0, 0.0], [552.8, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+      ),
+      material: whiteMaterial, transform: identityTransform, label: "Front wall",
+    },
     // Stanford dragon
     {
       mesh: load_mesh(dragonObj, [0.8, 0.2, 0.2]),
@@ -197,6 +206,7 @@ interface Engine {
   startAnimation(): void;
   stopAnimation(): void;
   setUseRaytracer(val: boolean): void;
+  setNbBounces(val: number): void;
   updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number): void;
   bvhRoot: BVHNode;
   setDebugAABBs(aabbs: AABB[]): void;
@@ -288,11 +298,12 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   const MVP_SIZE = 16;
   const SHARED_HEADER = 4; // camera_pos (vec3) + nbLights (f32)
   const LIGHTS_SIZE = MAX_LIGHTS * 12;
-  const MATERIALS_HEADER = 4; // nbMaterials + 3 padding floats
+  const MATERIALS_HEADER = 4; // nbMaterials + nb_bounces + 2 padding floats
   const RAY_CAMERA_SIZE = 12; // forward+fov, right+aspect, up+time
   const RAY_OFFSET = MVP_SIZE + SHARED_HEADER + LIGHTS_SIZE + MATERIALS_HEADER + MAX_MATERIALS * MATERIAL_SIZE;
   const UNIFORM_LENGTH = RAY_OFFSET + RAY_CAMERA_SIZE;
 
+  let nbBounces = 1;
 
   const packLightsAndMaterials = (out: Float32Array) => {
     out.set(scene.camera.position, 16); // camera_pos at index 16-18 (shared)
@@ -306,6 +317,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     }
     const matOffset = 20 + MAX_LIGHTS * 12;
     out[matOffset] = materials.length;
+    out[matOffset + 1] = nbBounces;
     for (let i = 0; i < materials.length; i++) {
       const baseIdx = matOffset + 4 + i * MATERIAL_SIZE;
       out.set(materials[i].diffuseAlbedo, baseIdx);
@@ -604,6 +616,10 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       useRaytracer = val;
     },
 
+    setNbBounces(val: number) {
+      nbBounces = val;
+    },
+
     async pickObject(sx: number, sy: number): Promise<number> {
       if (destroyed) return -1;
       device.queue.writeBuffer(pickCoordsBuffer, 0, new Float32Array([sx, sy]));
@@ -705,6 +721,7 @@ export default function Playground() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [roughness, setRoughness] = useState(0.5);
   const [metalness, setMetalness] = useState(0);
+  const [nbBounces, setNbBounces] = useState(1);
 
   const [bvhDepth, setBvhDepth] = useState(0);
   const [maxBvhDepth, setMaxBvhDepth] = useState(0);
@@ -891,6 +908,23 @@ export default function Playground() {
                 Raytraced
               </label>
               <span style={{ color: 'red', fontSize: '0.75em' }}>at your own risk</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '140px' }}>
+              <label htmlFor="nbBounces">Bounces: {nbBounces}</label>
+              <input
+                type="range"
+                id="nbBounces"
+                min="1"
+                max="20"
+                step="1"
+                value={nbBounces}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setNbBounces(val);
+                  engineRef.current?.setNbBounces(val);
+                }}
+              />
             </div>
           </div>
 

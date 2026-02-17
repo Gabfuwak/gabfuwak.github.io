@@ -33,7 +33,7 @@ struct Uniforms {
   nbLights: f32,
   lights: array<PointLight, 4>,
   nbMaterials: f32,
-  _pad4: f32,
+  nbBounces: f32,
   _pad5: f32,
   _pad6: f32,
   materials: array<Material, 16>,
@@ -414,15 +414,13 @@ fn pick_main() {
   }
 }
 
-const MAX_BOUNCES = 2u;
-
 @fragment
 fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
   var ray = ray_at(input.screen_pos);
   var throughput = vec3f(1.0);
   var output_color = vec3f(0.0);
 
-  for (var bounce = 0u; bounce < MAX_BOUNCES; bounce++) {
+  for (var bounce = 1u; bounce <= u32(uniforms.nbBounces); bounce++) {
     var hit_data: Hit;
     if (!rayTrace(ray, &hit_data)) { break; }
 
