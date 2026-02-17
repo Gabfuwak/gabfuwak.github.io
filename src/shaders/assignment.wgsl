@@ -317,7 +317,7 @@ fn rayTriangleHit(ray: Ray, tri_idx: u32) -> Hit {
   var no_hit: Hit;
   no_hit.t = -1.0;
 
-  if (abs(det) < 0.00001) { return no_hit; }
+  if (det < 0.00001) { return no_hit; }
 
   let inv_det = 1.0 / det;
   let T = ray.origin - v0;
