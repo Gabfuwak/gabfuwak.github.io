@@ -16,7 +16,7 @@ struct Material{
 
 struct BVHNode{
   minCorner: vec3<f32>,
-  isLeaf: u32,
+  isLeafOrTriNb: u32,
   maxCorner: vec3<f32>,
   triangleOrChildIdx: u32,
 }
@@ -357,13 +357,15 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
     stack_ptr -= 1;
     let curr_node_idx = stack[stack_ptr];
 
-    if (bvh[curr_node_idx].isLeaf != 0u) {
-      let candidate = rayTriangleHit(ray, bvh[curr_node_idx].triangleOrChildIdx);
+    if (bvh[curr_node_idx].isLeafOrTriNb != 0u) {
+      for(var candidate_idx = 0u; candidate_idx < bvh[curr_node_idx].isLeafOrTriNb; candidate_idx++){
+        let candidate = rayTriangleHit(ray, bvh[curr_node_idx].triangleOrChildIdx + candidate_idx);
 
-      if (candidate.t > 0.0 && candidate.t < closest_t) {
-        closest_t = candidate.t;
-        found_hit = true;
-        *hit = candidate;
+        if (candidate.t > 0.0 && candidate.t < closest_t) {
+          closest_t = candidate.t;
+          found_hit = true;
+          *hit = candidate;
+        }
       }
     } else {
       let rightChild = bvh[curr_node_idx].triangleOrChildIdx;

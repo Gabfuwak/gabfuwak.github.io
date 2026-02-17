@@ -14,7 +14,7 @@ export interface WireframeMesh {
 type BVHLeaf = {
   kind: "leaf";
   boundingBox: AABB;
-  triangleIndex: number;
+  triangles: Uint32Array;
 };
 
 type BVHInterior = {
@@ -172,13 +172,13 @@ function partitionSAH(mesh: Mesh, triangleSet: Uint32Array, axis: Axis) {
   return [sorted.slice(0, bestSplit), sorted.slice(bestSplit)];
 }
 
-function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array): BVHNode {
+function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array, depth: number): BVHNode {
   const box: AABB = getTriangleSetAABB(mesh, triangleSet);
-  if (triangleSet.length <= 1) {
+  if (triangleSet.length <= 1 || depth >= 25) {
     return {
       kind: "leaf",
       boundingBox: box,
-      triangleIndex: triangleSet.length === 1 ? triangleSet[0] : -1,
+      triangles: new Uint32Array(triangleSet),
     };
   }
 
@@ -187,8 +187,8 @@ function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array): BVHNode {
   return {
     kind: "interior",
     boundingBox: box,
-    left: getTriangleSetBVH(mesh, leftSet),
-    right: getTriangleSetBVH(mesh, rightSet),
+    left: getTriangleSetBVH(mesh, leftSet, depth + 1),
+    right: getTriangleSetBVH(mesh, rightSet, depth + 1),
   };
 }
 
@@ -207,7 +207,7 @@ export function getObjectBVH(object: SceneObject): BVHNode {
   const nb_triangles = object.mesh.indices.length / 3;
   const triangleSet = new Uint32Array(Array.from({ length: nb_triangles }, (_, i) => i));
 
-  return getTriangleSetBVH(worldMesh, triangleSet);
+  return getTriangleSetBVH(worldMesh, triangleSet, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,18 +220,22 @@ export interface FlatNode {
   isLeaf: boolean;
   leftChild: number;        // index into flat array, -1 if leaf
   rightChild: number;       // index into flat array, -1 if leaf
-  triangleIndex: number;    // triangle index in mesh.indices, -1 if interior
+  triangleIndex: number;    // start index into primitives array, -1 if interior
+  nbTris: number;
 }
 
-function flattenNode(node: BVHNode, index: number, out: FlatNode[]): number {
+function flattenNode(node: BVHNode, index: number, out: FlatNode[], primitives: number[]): number {
   if (node.kind === "leaf") {
+    const primStart = primitives.length;
+    for (const tri of node.triangles) primitives.push(tri);
     out[index] = {
       minCorner: node.boundingBox.minCorner,
       maxCorner: node.boundingBox.maxCorner,
       isLeaf: true,
       leftChild: -1,
       rightChild: -1,
-      triangleIndex: node.triangleIndex,
+      triangleIndex: primStart,
+      nbTris: node.triangles.length,
     };
     return index + 1;
   }
@@ -244,17 +248,19 @@ function flattenNode(node: BVHNode, index: number, out: FlatNode[]): number {
     leftChild: index + 1,
     rightChild: -1,
     triangleIndex: -1,
+    nbTris: -1
   };
 
-  const rightChildIdx = flattenNode(node.left, index + 1, out);
+  const rightChildIdx = flattenNode(node.left, index + 1, out, primitives);
   out[index].rightChild = rightChildIdx;
-  return flattenNode(node.right, rightChildIdx, out);
+  return flattenNode(node.right, rightChildIdx, out, primitives);
 }
 
-export function flattenBVH(root: BVHNode): FlatNode[] {
+export function flattenBVH(root: BVHNode): { nodes: FlatNode[]; primitives: Uint32Array } {
   const out: FlatNode[] = [];
-  flattenNode(root, 0, out);
-  return out;
+  const prims: number[] = [];
+  flattenNode(root, 0, out, prims);
+  return { nodes: out, primitives: new Uint32Array(prims) };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,5 +278,5 @@ export function buildSceneBVH(scene: Scene): BVHNode {
   };
   const nb_triangles = mesh.indices.length / 3;
   const triangleSet = new Uint32Array(Array.from({ length: nb_triangles }, (_, i) => i));
-  return getTriangleSetBVH(mesh, triangleSet);
+  return getTriangleSetBVH(mesh, triangleSet, 0);
 }

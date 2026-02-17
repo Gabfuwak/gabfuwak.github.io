@@ -261,14 +261,25 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   const BVH_FLOATS_PER_NODE = 8; // 8 data
 
+  const bvhRoot = buildSceneBVH(scene);
+  const { nodes: flat, primitives } = flattenBVH(bvhRoot);
+
+  // Reorder triangle triples in indexData to match BVH leaf order,
+  // so each leaf's triangles are contiguous and triangleOrChildIdx + i works directly.
+  const reorderedIndex = new Uint32Array(indexData.length);
+  for (let i = 0; i < primitives.length; i++) {
+    const src = primitives[i] * 3;
+    reorderedIndex[i * 3]     = indexData[src];
+    reorderedIndex[i * 3 + 1] = indexData[src + 1];
+    reorderedIndex[i * 3 + 2] = indexData[src + 2];
+  }
+
   device.queue.writeBuffer(vertexBuffer, 0, vertexPositions.buffer, vertexPositions.byteOffset, vertexPositions.byteLength);
-  device.queue.writeBuffer(indexBuffer, 0, indexData.buffer, indexData.byteOffset, indexData.byteLength);
+  device.queue.writeBuffer(indexBuffer, 0, reorderedIndex.buffer, reorderedIndex.byteOffset, reorderedIndex.byteLength);
   device.queue.writeBuffer(objectIdBuffer, 0, objectIds.buffer, objectIds.byteOffset, objectIds.byteLength);
   device.queue.writeBuffer(normalBuffer, 0, vertexNormals.buffer, vertexNormals.byteOffset, vertexNormals.byteLength);
   device.queue.writeBuffer(uvBuffer, 0, vertexUVs.buffer, vertexUVs.byteOffset, vertexUVs.byteLength);
 
-  const bvhRoot = buildSceneBVH(scene);
-  const flat = flattenBVH(bvhRoot);
   const bvhBytes = new ArrayBuffer(flat.length * BVH_FLOATS_PER_NODE * 4);
   {
     const view = new DataView(bvhBytes);
@@ -278,7 +289,11 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       view.setFloat32(b +  0, n.minCorner[0],        true);
       view.setFloat32(b +  4, n.minCorner[1],        true);
       view.setFloat32(b +  8, n.minCorner[2],        true);
-      view.setUint32 (b + 12, n.isLeaf ? 1 : 0,      true);
+      if(!n.isLeaf){
+        view.setUint32 (b + 12, 0, true); // if 0 then it's a not a leaf
+      }else{
+        view.setUint32 (b + 12, n.nbTris, true); // if non zero then it's a leaf and this is the number of triangles
+      }
       view.setFloat32(b + 16, n.maxCorner[0],        true);
       view.setFloat32(b + 20, n.maxCorner[1],        true);
       view.setFloat32(b + 24, n.maxCorner[2],        true);
