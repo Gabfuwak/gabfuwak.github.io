@@ -281,7 +281,7 @@ fn ray_at(screenCoord: vec2<f32>) -> Ray {
   return output;
 }
 
-fn rayBoxHit(ray: Ray, box: BVHNode) -> bool {
+fn rayBoxHit(ray: Ray, box: BVHNode) -> f32 {
   var tmin = 0.0f;
   var tmax = 1e30;
 
@@ -292,7 +292,13 @@ fn rayBoxHit(ray: Ray, box: BVHNode) -> bool {
     tmin = max(tmin, min(t1, t2));
     tmax = min(tmax, max(t1, t2));
   }
-  return tmax >= tmin && tmax >= 0.0f;
+
+
+  if(tmax >= tmin && tmax >= 0.0f){
+    return tmin;
+  }else {
+    return 1e30;
+  }
 }
 
 fn rayTriangleHit(ray: Ray, tri_idx: u32) -> Hit {
@@ -363,14 +369,27 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
       let rightChild = bvh[curr_node_idx].triangleOrChildIdx;
       let leftChild  = curr_node_idx + 1;
 
-      if (rayBoxHit(ray, bvh[rightChild])) {
-        stack[stack_ptr] = rightChild;
-        stack_ptr += 1;
-      }
+      let rightChildHit_t = rayBoxHit(ray, bvh[rightChild]);
+      let leftChildHit_t  = rayBoxHit(ray, bvh[leftChild]);
 
-      if (rayBoxHit(ray, bvh[leftChild])) {
-        stack[stack_ptr] = leftChild;
-        stack_ptr += 1;
+      if (leftChildHit_t < rightChildHit_t) {
+        if (rightChildHit_t < closest_t) {
+          stack[stack_ptr] = rightChild;
+          stack_ptr += 1;
+        }
+        if (leftChildHit_t < closest_t) {
+          stack[stack_ptr] = leftChild;
+          stack_ptr += 1;
+        }
+      } else {
+        if (leftChildHit_t < closest_t) {
+          stack[stack_ptr] = leftChild;
+          stack_ptr += 1;
+        }
+        if (rightChildHit_t < closest_t) {
+          stack[stack_ptr] = rightChild;
+          stack_ptr += 1;
+        }
       }
     }
   }

@@ -208,10 +208,10 @@ export function merge_meshes(meshes: Mesh[]): Mesh {
   let vertexOffset = 0;
 
   for (const mesh of meshes) {
-    positions.push(...mesh.positions);
-    normals.push(...mesh.normals);
-    uvs.push(...mesh.uvs);
-    colors.push(...mesh.colors);
+    for (let i = 0; i < mesh.positions.length; i++) positions.push(mesh.positions[i]);
+    for (let i = 0; i < mesh.normals.length; i++) normals.push(mesh.normals[i]);
+    for (let i = 0; i < mesh.uvs.length; i++) uvs.push(mesh.uvs[i]);
+    for (let i = 0; i < mesh.colors.length; i++) colors.push(mesh.colors[i]);
 
     for (let i = 0; i < mesh.indices.length; i++) {
       indices.push(mesh.indices[i] + vertexOffset);

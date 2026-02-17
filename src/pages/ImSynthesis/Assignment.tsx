@@ -1,7 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
 import { HexColorPicker } from 'react-colorful';
 import { load_mesh, create_quad, get_mat } from '../../utils/mesh_gen';
-import dragonObj from '../../assets/dragon_2348.obj?raw';
+import dragonLowObj from '../../assets/dragon_2348.obj?raw';
+import dragonHighObj from '../../assets/dragon_117452.obj?raw';
+
+const MODELS = {
+  'Dragon (2k tri)': dragonLowObj,
+  'Dragon (117k tri)': dragonHighObj,
+} as const;
+
+type ModelName = keyof typeof MODELS;
 import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP, pan, moveForward, rotateYaw, rotatePitch } from '../../utils/webgpu';
 import { type Scene, type Light, type Material} from '../../utils/scene';
 import { type AABB, createAABBWireframe, buildSceneBVH, type BVHNode, flattenBVH } from '../../utils/cpuBVH';
@@ -15,7 +23,7 @@ import aabbShaderCode from '../../shaders/aabb.wgsl?raw';
 // Scene definition
 // ---------------------------------------------------------------------------
 
-function buildScene(canvas: HTMLCanvasElement): Scene {
+function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
   const camera = initCamera(canvas,
     [278, 273, -800],
     [278, 273, -799],
@@ -186,7 +194,7 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
     },
     // Stanford dragon
     {
-      mesh: load_mesh(dragonObj, [0.8, 0.2, 0.2]),
+      mesh: load_mesh(MODELS[modelName], [0.8, 0.2, 0.2]),
       material: noisyDragonMaterial,
       transform: get_mat({ translation: [279, 115, 269], rotation: [0, Math.PI / 4, 0], scale: 2 }),
       label: "Dragon",
@@ -252,13 +260,6 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   });
 
   const BVH_FLOATS_PER_NODE = 8; // 8 data
-  const MAX_BVH_NODES = 8192;
-
-  const bvhBuffer = device.createBuffer({
-    label: "BVH nodes",
-    size: MAX_BVH_NODES * BVH_FLOATS_PER_NODE * 4,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
 
   device.queue.writeBuffer(vertexBuffer, 0, vertexPositions.buffer, vertexPositions.byteOffset, vertexPositions.byteLength);
   device.queue.writeBuffer(indexBuffer, 0, indexData.buffer, indexData.byteOffset, indexData.byteLength);
@@ -267,9 +268,9 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   device.queue.writeBuffer(uvBuffer, 0, vertexUVs.buffer, vertexUVs.byteOffset, vertexUVs.byteLength);
 
   const bvhRoot = buildSceneBVH(scene);
+  const flat = flattenBVH(bvhRoot);
+  const bvhBytes = new ArrayBuffer(flat.length * BVH_FLOATS_PER_NODE * 4);
   {
-    const flat = flattenBVH(bvhRoot);
-    const bvhBytes = new ArrayBuffer(flat.length * BVH_FLOATS_PER_NODE * 4);
     const view = new DataView(bvhBytes);
     for (let i = 0; i < flat.length; i++) {
       const n = flat[i];
@@ -287,8 +288,14 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
         view.setUint32 (b + 28, n.rightChild     >= 0 ? n.rightChild     : 0, true);
       }
     }
-    device.queue.writeBuffer(bvhBuffer, 0, bvhBytes);
   }
+
+  const bvhBuffer = device.createBuffer({
+    label: "BVH nodes",
+    size: bvhBytes.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(bvhBuffer, 0, bvhBytes);
 
   // ----- Uniforms -----
 
@@ -443,7 +450,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   // ----- AABB debug pipeline -----
 
-  const MAX_AABB = 10000;
+  const MAX_AABB = 120000;
   const aabbVertexBuffer = device.createBuffer({
     label: "AABB vertices",
     size: MAX_AABB * 8 * 3 * 4,
@@ -722,6 +729,7 @@ export default function Playground() {
   const [roughness, setRoughness] = useState(0.5);
   const [metalness, setMetalness] = useState(0);
   const [nbBounces, setNbBounces] = useState(1);
+  const [selectedModel, setSelectedModel] = useState<ModelName>('Dragon (2k tri)');
 
   const [bvhDepth, setBvhDepth] = useState(0);
   const [maxBvhDepth, setMaxBvhDepth] = useState(0);
@@ -771,7 +779,13 @@ export default function Playground() {
 
     (async () => {
       try {
-        const scene = buildScene(canvas);
+        setSceneReady(false);
+        setIsAnimating(false);
+        setUseRaytracer(false);
+        setNbBounces(1);
+        setBvhDepth(0);
+        setPickerOpen(false);
+        const scene = buildScene(canvas, selectedModel);
         const engine = await createEngine(canvas, scene);
         if (cancelled) { engine.destroy(); return; }
 
@@ -805,7 +819,7 @@ export default function Playground() {
       engineRef.current?.destroy();
       engineRef.current = null;
     };
-  }, []);
+  }, [selectedModel]);
 
   // Keyboard camera controls: WASD/ZQSD = move, arrow keys = rotate
   useEffect(() => {
@@ -878,6 +892,18 @@ export default function Playground() {
           </p>
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', alignItems: 'flex-start', marginTop: '8px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              Model:
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value as ModelName)}
+              >
+                {Object.keys(MODELS).map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </label>
+
             <label htmlFor="animatingCheckbox" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <input
                 type="checkbox"

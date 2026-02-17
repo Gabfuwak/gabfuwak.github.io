@@ -73,7 +73,7 @@ export function extractSceneData(scene: Scene) : MergedScene {
     raw_meshes.push(transformed);
 
     const nb_vtx = scene_object.mesh.positions.length / 3;
-    objectIds.push(...new Array(nb_vtx).fill(mat.id));
+    for (let i = 0; i < nb_vtx; i++) objectIds.push(mat.id);
 
     ranges.push({
       objectId: object_id_counter,
