@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { HexColorPicker } from 'react-colorful';
 import { load_mesh, create_quad, get_mat } from '../../utils/mesh_gen';
 import dragonObj from '../../assets/dragon_2348.obj?raw';
-import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP} from '../../utils/webgpu';
+import { initWebGPU, initCamera, getCameraBasis, extractSceneData, getMVP, pan, moveForward, rotateYaw, rotatePitch } from '../../utils/webgpu';
 import { type Scene, type Light, type Material} from '../../utils/scene';
 import { type AABB, createAABBWireframe, buildSceneBVH, type BVHNode, flattenBVH } from '../../utils/cpuBVH';
 import WebGPUWarning from '../../components/WebGPUWarning';
@@ -20,7 +20,8 @@ function buildScene(canvas: HTMLCanvasElement): Scene {
     [278, 273, -800],
     [278, 273, -799],
     [0, 1, 0],
-    2 * Math.atan(0.025 / (2 * 0.035)),
+    //2 * Math.atan(0.025 / (2 * 0.035)),
+    3.1415/3.0,
     0.1,
     2000,
   );
@@ -561,7 +562,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       if (destroyed || !fpsMeasuring) return;
       const startCount = frameCount;
       const measureStart = performance.now();
-      const duration = 2000;
+      const duration = 500;
 
       fpsTimeout = window.setTimeout(() => {
         if (destroyed || !fpsMeasuring) return;
@@ -569,7 +570,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
         const fps = (frameCount - startCount) / elapsed;
         console.log(`Average FPS: ${fps.toFixed(1)}`);
         onResult(fps);
-        fpsTimeout = window.setTimeout(measure, 3000);
+        fpsTimeout = window.setTimeout(measure, 0);
       }, duration);
     };
 
@@ -789,6 +790,60 @@ export default function Playground() {
     };
   }, []);
 
+  // Keyboard camera controls: WASD/ZQSD = move, arrow keys = rotate
+  useEffect(() => {
+    if (!sceneReady) return;
+
+    const keys = new Set<string>();
+    const MOVE_SPEED = 200; // units/second (scene is ~550 units wide)
+    const ROT_SPEED  = 1.2; // radians/second
+
+    let rafId = 0;
+    let lastTime = performance.now();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      keys.add(e.code);
+      if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight')
+        e.preventDefault();
+    };
+    const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    const tick = (now: number) => {
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
+
+      const cam = engineRef.current?.scene.camera;
+      if (cam) {
+        const sp = MOVE_SPEED * dt;
+
+        if (keys.has('KeyW')) moveForward(cam, sp);
+        if (keys.has('KeyS')) moveForward(cam, -sp);
+        if (keys.has('KeyA')) pan(cam, -sp, 0);
+        if (keys.has('KeyD')) pan(cam, sp, 0);
+        if (keys.has('KeyR')) pan(cam, 0, sp);
+        if (keys.has('KeyF')) pan(cam, 0, -sp);
+
+        if (keys.has('ArrowLeft'))  rotateYaw(cam, ROT_SPEED * dt);
+        if (keys.has('ArrowRight')) rotateYaw(cam, -ROT_SPEED * dt);
+        if (keys.has('ArrowUp'))    rotatePitch(cam, ROT_SPEED * dt);
+        if (keys.has('ArrowDown'))  rotatePitch(cam, -ROT_SPEED * dt);
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      cancelAnimationFrame(rafId);
+    };
+  }, [sceneReady]);
+
   return (
     <div>
       <h1>WebGPU playground</h1>
@@ -801,6 +856,9 @@ export default function Playground() {
         <>
           {showPerformanceWarning && <VulkanWarning />}
           <canvas ref={canvasRef} width="1024" height="1024" style={{ background: 'black', display: 'block', margin: '0 auto', cursor: 'crosshair' }} onClick={handleCanvasClick}></canvas>
+          <p style={{ textAlign: 'center', margin: '6px 0 0', fontSize: '0.85rem', opacity: 0.6 }}>
+            WASD to move, R/F up/down, arrow keys to look around, click to select a material
+          </p>
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', alignItems: 'flex-start', marginTop: '8px' }}>
             <label htmlFor="animatingCheckbox" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

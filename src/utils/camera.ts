@@ -104,3 +104,46 @@ export function pan(camera: Camera, dx: number, dy: number): void {
   camera.target[1]   += rghtY * dx + camera.up[1] * dy;
   camera.target[2]   += rghtZ * dx + camera.up[2] * dy;
 }
+
+// Move camera along its forward axis (positive = toward target)
+export function moveForward(camera: Camera, distance: number): void {
+  const { forward } = getCameraBasis(camera);
+  for (let i = 0; i < 3; i++) {
+    camera.position[i] += forward[i] * distance;
+    camera.target[i]   += forward[i] * distance;
+  }
+}
+
+// Yaw: rotate view direction around world Y axis
+export function rotateYaw(camera: Camera, angle: number): void {
+  const { forward } = getCameraBasis(camera);
+  const dist = Math.hypot(
+    camera.target[0] - camera.position[0],
+    camera.target[1] - camera.position[1],
+    camera.target[2] - camera.position[2],
+  );
+  const c = Math.cos(angle), s = Math.sin(angle);
+  const fX = forward[0] * c + forward[2] * s;
+  const fZ = -forward[0] * s + forward[2] * c;
+  camera.target[0] = camera.position[0] + fX * dist;
+  camera.target[1] = camera.position[1] + forward[1] * dist;
+  camera.target[2] = camera.position[2] + fZ * dist;
+}
+
+// Pitch: rotate view direction around camera-local right axis
+export function rotatePitch(camera: Camera, angle: number): void {
+  const { forward, up } = getCameraBasis(camera);
+  const dist = Math.hypot(
+    camera.target[0] - camera.position[0],
+    camera.target[1] - camera.position[1],
+    camera.target[2] - camera.position[2],
+  );
+  const c = Math.cos(angle), s = Math.sin(angle);
+  const fX = forward[0] * c + up[0] * s;
+  const fY = forward[1] * c + up[1] * s;
+  const fZ = forward[2] * c + up[2] * s;
+  const len = Math.hypot(fX, fY, fZ);
+  camera.target[0] = camera.position[0] + (fX / len) * dist;
+  camera.target[1] = camera.position[1] + (fY / len) * dist;
+  camera.target[2] = camera.position[2] + (fZ / len) * dist;
+}
