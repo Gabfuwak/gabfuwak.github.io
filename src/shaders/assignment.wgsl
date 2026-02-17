@@ -343,8 +343,8 @@ fn rayTriangleHit(ray: Ray, tri_idx: u32) -> Hit {
   return hit;
 }
 
-fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
-  var closest_t = 1e30;
+fn rayTrace(ray: Ray, hit: ptr<function, Hit>, is_shadow: bool, max_t: f32) -> bool {
+  var closest_t = max_t;
   var found_hit = false;
 
   var stack: array<u32, 64>;
@@ -365,6 +365,9 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
           closest_t = candidate.t;
           found_hit = true;
           *hit = candidate;
+          if(is_shadow){ // early stop if anything is blocking a shadow ray
+            return true;
+          }
         }
       }
     } else {
@@ -424,7 +427,7 @@ fn rayVertexMain(@builtin(vertex_index) vid: u32) -> RayVertexOutput {
 fn pick_main() {
   let ray = ray_at(pick_coords);
   var hit: Hit;
-  if (rayTrace(ray, &hit)) {
+  if (rayTrace(ray, &hit, false, 1e30)) {
     pick_result = i32(objectIds[indices[hit.triIndex * 3u]]);
   } else {
     pick_result = -1;
@@ -439,7 +442,7 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
 
   for (var bounce = 1u; bounce <= u32(uniforms.nbBounces); bounce++) {
     var hit_data: Hit;
-    if (!rayTrace(ray, &hit_data)) { break; }
+    if (!rayTrace(ray, &hit_data, false, 1e30)) { break; }
 
     let sp = resolve_hit(hit_data);
     let viewDir = -ray.direction;
@@ -453,9 +456,9 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
       shadow_ray.origin = sp.world_pos + sp.normal * 0.1;
 
       var shadow_hit: Hit;
-      let is_shadow = rayTrace(shadow_ray, &shadow_hit);
+      let is_shadow = rayTrace(shadow_ray, &shadow_hit, true, length(lightVec));
 
-      if (!is_shadow || shadow_hit.t > length(lightVec)) {
+      if (!is_shadow) {
         output_color += throughput * evaluateRadiance(
           sp.objectId,
           uniforms.lights[i],
