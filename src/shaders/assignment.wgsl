@@ -18,11 +18,7 @@ struct BVHNode{
   minCorner: vec3<f32>,
   isLeaf: u32,
   maxCorner: vec3<f32>,
-  triangleIdx: u32,
-  leftChildIdx: u32,
-  rightChildIdx: u32,
-  _pad0: u32,
-  _pad1: u32,
+  triangleOrChildIdx: u32,
 }
 
 struct Uniforms {
@@ -356,7 +352,7 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
     let curr_node_idx = stack[stack_ptr];
 
     if (bvh[curr_node_idx].isLeaf != 0u) {
-      let candidate = rayTriangleHit(ray, bvh[curr_node_idx].triangleIdx);
+      let candidate = rayTriangleHit(ray, bvh[curr_node_idx].triangleOrChildIdx);
 
       if (candidate.t > 0.0 && candidate.t < closest_t) {
         closest_t = candidate.t;
@@ -364,8 +360,8 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>) -> bool {
         *hit = candidate;
       }
     } else {
-      let rightChild = bvh[curr_node_idx].rightChildIdx;
-      let leftChild  = bvh[curr_node_idx].leftChildIdx;
+      let rightChild = bvh[curr_node_idx].triangleOrChildIdx;
+      let leftChild  = curr_node_idx + 1;
 
       if (rayBoxHit(ray, bvh[rightChild])) {
         stack[stack_ptr] = rightChild;

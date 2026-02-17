@@ -251,7 +251,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
   });
 
-  const BVH_FLOATS_PER_NODE = 12; // 10 data + 2 padding to match 48-byte WGSL struct stride
+  const BVH_FLOATS_PER_NODE = 8; // 8 data
   const MAX_BVH_NODES = 8192;
 
   const bvhBuffer = device.createBuffer({
@@ -281,11 +281,11 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       view.setFloat32(b + 16, n.maxCorner[0],        true);
       view.setFloat32(b + 20, n.maxCorner[1],        true);
       view.setFloat32(b + 24, n.maxCorner[2],        true);
-      view.setUint32 (b + 28, n.triangleIndex >= 0 ? n.triangleIndex : 0, true);
-      view.setUint32 (b + 32, n.leftChild     >= 0 ? n.leftChild     : 0, true);
-      view.setUint32 (b + 36, n.rightChild    >= 0 ? n.rightChild    : 0, true);
-      view.setUint32 (b + 40, 0, true); // _pad0
-      view.setUint32 (b + 44, 0, true); // _pad1
+      if(n.isLeaf){
+        view.setUint32 (b + 28, n.triangleIndex >= 0 ? n.triangleIndex : 0, true);
+      }else{
+        view.setUint32 (b + 28, n.rightChild     >= 0 ? n.rightChild     : 0, true);
+      }
     }
     device.queue.writeBuffer(bvhBuffer, 0, bvhBytes);
   }
