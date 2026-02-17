@@ -125,37 +125,51 @@ function getTriangleSetAABB(mesh: Mesh, triangleSet: Uint32Array): AABB {
   return { minCorner, maxCorner };
 }
 
-function partitionAlongMedian(mesh: Mesh, triangleSet: Uint32Array, axis: Axis) {
-  const triangle_centers = new Float32Array(Array.from(
-    triangleSet, (idx: number, _) => {
-      const i0 = mesh.indices[idx*3];
-      const i1 = mesh.indices[idx*3 + 1];
-      const i2 = mesh.indices[idx*3 + 2];
+function boxSAHCost(box: AABB, tri_nb: number){
+  let size_x = (box.maxCorner[0] - box.minCorner[0]); 
+  let size_y = (box.maxCorner[1] - box.minCorner[1]);
+  let size_z = (box.maxCorner[2] - box.minCorner[2])
+  let half_surface_area = size_x * (size_y + size_z) + size_y * size_z;
 
-      const p0 = mesh.positions[i0*3 + axis];
-      const p1 = mesh.positions[i1*3 + axis];
-      const p2 = mesh.positions[i2*3 + axis];
+  return half_surface_area * tri_nb;
+}
 
-      const center = (p0 + p1 + p2) / 3;
-      return center;
-    }
-  ));
-
-  const pairs = Array.from(triangleSet, (tri, i) => ({ tri, center: triangle_centers[i] }));
+function partitionSAH(mesh: Mesh, triangleSet: Uint32Array, axis: Axis) {
+  const pairs = Array.from(triangleSet, (tri) => {
+    const i0 = mesh.indices[tri*3];
+    const i1 = mesh.indices[tri*3 + 1];
+    const i2 = mesh.indices[tri*3 + 2];
+    const center = (mesh.positions[i0*3 + axis] + mesh.positions[i1*3 + axis] + mesh.positions[i2*3 + axis]) / 3;
+    return { tri, center };
+  });
   pairs.sort((a, b) => a.center - b.center);
 
-  const triangleSetLeft = [];
-  const triangleSetRight = [];
+  const n = pairs.length;
+  const sorted = new Uint32Array(pairs.map(p => p.tri));
 
-  for (let i = 0; i < pairs.length; i++) {
-    if (i < pairs.length / 2) {
-      triangleSetLeft.push(pairs[i].tri);
-    } else {
-      triangleSetRight.push(pairs[i].tri);
+  const nb_buckets = 12;
+  const range = pairs[n - 1].center - pairs[0].center;
+
+  let bestSplit = n / 2; // fallback: median
+
+  if (range > 0) {
+    let bestCost = 1e30;
+    for (let b = 1; b < nb_buckets; b++) {
+      const threshold = pairs[0].center + b * (range / nb_buckets);
+      const splitIdx = pairs.findIndex(p => p.center >= threshold);
+      if (splitIdx <= 0) continue;
+
+      const cost = boxSAHCost(getTriangleSetAABB(mesh, sorted.subarray(0, splitIdx)), splitIdx)
+                 + boxSAHCost(getTriangleSetAABB(mesh, sorted.subarray(splitIdx)), n - splitIdx);
+
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestSplit = splitIdx;
+      }
     }
   }
 
-  return [new Uint32Array(triangleSetLeft), new Uint32Array(triangleSetRight)];
+  return [sorted.slice(0, bestSplit), sorted.slice(bestSplit)];
 }
 
 function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array): BVHNode {
@@ -169,7 +183,7 @@ function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array): BVHNode {
   }
 
   const axis = dominantAxis(box);
-  const [leftSet, rightSet] = partitionAlongMedian(mesh, triangleSet, axis);
+  const [leftSet, rightSet] = partitionSAH(mesh, triangleSet, axis);
   return {
     kind: "interior",
     boundingBox: box,
