@@ -134,7 +134,7 @@ function boxSAHCost(box: AABB, tri_nb: number){
   return half_surface_area * tri_nb;
 }
 
-function partitionSAH(mesh: Mesh, triangleSet: Uint32Array, axis: Axis) {
+function partitionSAHAxis(mesh: Mesh, triangleSet: Uint32Array, axis: Axis): { sorted: Uint32Array, splitIdx: number, cost: number } {
   const pairs = Array.from(triangleSet, (tri) => {
     const i0 = mesh.indices[tri*3];
     const i1 = mesh.indices[tri*3 + 1];
@@ -150,10 +150,10 @@ function partitionSAH(mesh: Mesh, triangleSet: Uint32Array, axis: Axis) {
   const nb_buckets = 12;
   const range = pairs[n - 1].center - pairs[0].center;
 
-  let bestSplit = n / 2; // fallback: median
+  let bestSplit = Math.floor(n / 2); // fallback: median
+  let bestCost = 1e30;
 
   if (range > 0) {
-    let bestCost = 1e30;
     for (let b = 1; b < nb_buckets; b++) {
       const threshold = pairs[0].center + b * (range / nb_buckets);
       const splitIdx = pairs.findIndex(p => p.center >= threshold);
@@ -169,12 +169,21 @@ function partitionSAH(mesh: Mesh, triangleSet: Uint32Array, axis: Axis) {
     }
   }
 
-  return [sorted.slice(0, bestSplit), sorted.slice(bestSplit)];
+  return { sorted, splitIdx: bestSplit, cost: bestCost };
+}
+
+function partitionSAH(mesh: Mesh, triangleSet: Uint32Array) {
+  let best = partitionSAHAxis(mesh, triangleSet, 0);
+  for (const axis of [1, 2] as Axis[]) {
+    const candidate = partitionSAHAxis(mesh, triangleSet, axis);
+    if (candidate.cost < best.cost) best = candidate;
+  }
+  return [best.sorted.slice(0, best.splitIdx), best.sorted.slice(best.splitIdx)];
 }
 
 function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array, depth: number): BVHNode {
   const box: AABB = getTriangleSetAABB(mesh, triangleSet);
-  if (triangleSet.length <= 1 || depth >= 25) {
+  if (triangleSet.length <= 1 || depth >= 32) {
     return {
       kind: "leaf",
       boundingBox: box,
@@ -182,8 +191,7 @@ function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array, depth: number):
     };
   }
 
-  const axis = dominantAxis(box);
-  const [leftSet, rightSet] = partitionSAH(mesh, triangleSet, axis);
+  const [leftSet, rightSet] = partitionSAH(mesh, triangleSet);
   return {
     kind: "interior",
     boundingBox: box,
