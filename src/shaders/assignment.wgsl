@@ -12,6 +12,10 @@ struct Material{
   roughness: f32,
   fresnel: vec3<f32>,
   metalness: f32,
+  emission: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 }
 
 struct BVHNode{
@@ -120,9 +124,11 @@ fn evaluateRadiance(
   let coneAngle = light.angle;
   let inCone = dot(normalize(light.direction), lightToPoint) >= cos(coneAngle / 2.0);
 
+  let emission = uniforms.materials[materialId].emission;
   if (!inCone) {
-    return vec3<f32>(0.0);
+    return vec3f(emission);
   }
+
 
   let lightDistance = length(lightVec) / 100.0;
   let constant = 1.0;
@@ -137,7 +143,9 @@ fn evaluateRadiance(
 
   let kD = (1.0 - uniforms.materials[materialId].metalness) * (1.0 - uniforms.materials[materialId].fresnel);
 
-  return kD * diffuse_term + specular_term;
+
+
+  return kD * diffuse_term + specular_term + emission;
 }
 
 
@@ -434,47 +442,70 @@ fn pick_main() {
   }
 }
 
+fn sampleSemiSphere(n : vec3f, seed: f32) -> vec3f{
+  let vec3seed = vec3f(seed, seed+1, seed +2);
+  let phi = random3D(vec3seed) * 6.28318530718;
+  let cos_theta = random3D(vec3seed + vec3f(1.0)); // [0, 1] for hemisphere
+  let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+  // add semi sphere variation around the normal
+  return normalize(n + vec3f(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta));
+}
+
 @fragment
 fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
-  var ray = ray_at(input.screen_pos);
-  var throughput = vec3f(1.0);
   var output_color = vec3f(0.0);
 
-  for (var bounce = 1u; bounce <= u32(uniforms.nbBounces); bounce++) {
-    var hit_data: Hit;
-    if (!rayTrace(ray, &hit_data, false, 1e30)) { break; }
+  for(var sample = 0u; sample < u32(uniforms.nbBounces); sample++){
+    var ray = ray_at(input.screen_pos);
+    var sample_output_color = vec3f(0.0);
+    var throughput = vec3f(1.0);
+    for (var bounce = 1u; bounce <= 10; bounce++) {
+      var hit_data: Hit;
+      if (!rayTrace(ray, &hit_data, false, 1e30)) { break; }
 
-    let sp = resolve_hit(hit_data);
-    let viewDir = -ray.direction;
+      let sp = resolve_hit(hit_data);
+      let viewDir = -ray.direction;
 
-    for (var i = 0u; i < u32(uniforms.nbLights); i++) {
-      let lightVec = uniforms.lights[i].position - sp.world_pos;
-      let lightDir = normalize(lightVec);
+      sample_output_color += throughput * sp.material.emission;
 
-      var shadow_ray: Ray;
-      shadow_ray.direction = lightDir;
-      shadow_ray.origin = sp.world_pos + sp.normal * 0.1;
+      for (var i = 0u; i < u32(uniforms.nbLights); i++) {
+        let lightVec = uniforms.lights[i].position - sp.world_pos;
+        let lightDir = normalize(lightVec);
 
-      var shadow_hit: Hit;
-      let is_shadow = rayTrace(shadow_ray, &shadow_hit, true, length(lightVec));
+        var shadow_ray: Ray;
+        shadow_ray.direction = lightDir;
+        shadow_ray.origin = sp.world_pos + sp.normal * 0.1;
 
-      if (!is_shadow) {
-        output_color += throughput * evaluateRadiance(
-          sp.objectId,
-          uniforms.lights[i],
-          sp.world_pos,
-          sp.normal,
-          viewDir,
-          sp.material
-        );
+        var shadow_hit: Hit;
+        let is_shadow = rayTrace(shadow_ray, &shadow_hit, true, length(lightVec));
+
+        if (!is_shadow) {
+          output_color += throughput * evaluateRadiance(
+            sp.objectId,
+            uniforms.lights[i],
+            sp.world_pos,
+            sp.normal,
+            viewDir,
+            sp.material
+          );
+        }
       }
-    }
 
-    let F = schlick_fresnel(sp.objectId, viewDir, sp.normal);
-    if (all(throughput * F < vec3f(0.001))) { break; }
-    throughput *= F;
-    ray = Ray(sp.world_pos + sp.normal * 0.001, reflect(-viewDir, sp.normal));
+      let F = schlick_fresnel(sp.objectId, viewDir, sp.normal);
+      //if (all(throughput * F < vec3f(0.001))) { break; }
+
+      // white reflects more than black so we need a kd here too
+      let kD = (1.0 - sp.material.metalness) * (vec3f(1.0) - F);
+      throughput *= kD * sp.material.baseColor + F;
+
+      let seed = dot(input.screen_pos, vec2f(127.1, 311.7)) + f32(sample) * 1337.0 + f32(bounce) * 7919.0 + uniforms.time;
+      let random_ray_dir = sampleSemiSphere(sp.normal, seed);
+
+      ray = Ray(sp.world_pos + sp.normal * 0.001, random_ray_dir);
+      if(all(throughput < vec3f(random(vec2f(seed))))) {break;} // russian roulette
+    }
+    output_color += sample_output_color;
   }
 
-  return vec4f(output_color, 1.0);
+  return vec4f(output_color/uniforms.nbBounces, 1.0);
 }

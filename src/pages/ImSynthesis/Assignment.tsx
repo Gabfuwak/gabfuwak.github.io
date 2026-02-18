@@ -34,25 +34,26 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
     2000,
   );
 
-  const boxCenter = [278, 274, 280];
+  //const boxCenter = [278, 274, 280];
 
-  const normalize = (x: number, y: number, z: number): Float32Array => {
+  /*const normalize = (x: number, y: number, z: number): Float32Array => {
     const len = Math.sqrt(x * x + y * y + z * z);
     return new Float32Array([x / len, y / len, z / len]);
   };
+  */
 
   const lights: Light[] = [
-    // Keylight
+    /*// Keylight
     {
         position: new Float32Array([71, 412, 140]),
         color: new Float32Array([1.0, 1.0, 1.0]),
-        intensity: 1.5,
+        intensity: 2,
         direction: normalize(
           boxCenter[0] - 71,
           boxCenter[1] - 412,
           boxCenter[2] - 140
         ),
-        angle: 360.0
+        angle: 90.0
     },
     // Fill light
     {
@@ -89,7 +90,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
           boxCenter[2] - 280
         ),
         angle: 360.0
-    },
+    },*/
   ];
 
   const whiteMaterial: Material = {
@@ -97,7 +98,9 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]),
       roughness: 0,
       metalness: 0,
-      fresnel: new Float32Array([0.9, 0.9, 0.9]), // plastic
+      //fresnel: new Float32Array([0.9, 0.9, 0.9]), // mirror
+      fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+      emission: 0.0,
   };
   const redMaterial:   Material = {
       id: 1,
@@ -105,6 +108,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       roughness: 0,
       metalness: 0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+      emission: 0.0,
   };
   const greenMaterial: Material = {
       id: 2,
@@ -112,13 +116,23 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       roughness: 0,
       metalness: 0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+      emission: 0.0,
   };
   const noisyDragonMaterial: Material = {
       id: 3,
       diffuseAlbedo: new Float32Array([0.8, 0.0, 0.0]),
       roughness: 0.5,
       metalness: 1.0,
-      fresnel: new Float32Array([1.0, 0.71, 0.29]),
+      fresnel: new Float32Array([1.0, 0.71, 0.29]), // gold
+      emission: 0.0,
+  };
+  const lightMaterial: Material = {
+      id: 4,
+      diffuseAlbedo: new Float32Array([1.0, 1.0, 1.0]),
+      roughness: 0.0,
+      metalness: 0.0,
+      fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
+      emission: 3.0,
   };
 
   const identityTransform = new Float32Array([
@@ -150,11 +164,11 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
     // Cornell Box - Light (area on ceiling)
     {
       mesh: create_quad(
-        [343.0, 548.8, 227.0], [343.0, 548.8, 332.0],
-        [213.0, 548.8, 332.0], [213.0, 548.8, 227.0],
+        [343.0, 548.0, 227.0], [343.0, 548.0, 332.0],
+        [213.0, 548.0, 332.0], [213.0, 548.0, 227.0],
         [1.0, 1.0, 1.0],
       ),
-      material: whiteMaterial, transform: identityTransform, label: "Light",
+      material: lightMaterial, transform: identityTransform, label: "Light",
     },
     // Cornell Box - Back wall
     {
@@ -316,7 +330,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   const MAX_LIGHTS = 4;
   const MAX_MATERIALS = 16;
-  const MATERIAL_SIZE = 8; // vec3 baseColor + roughness + vec3 fresnel + metalness = 8 floats
+  const MATERIAL_SIZE = 12; // vec3 baseColor + roughness + vec3 fresnel + metalness + emission + 3 padding = 12 floats
   const MVP_SIZE = 16;
   const SHARED_HEADER = 4; // camera_pos (vec3) + nbLights (f32)
   const LIGHTS_SIZE = MAX_LIGHTS * 12;
@@ -346,6 +360,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       out[baseIdx + 3] = materials[i].roughness ?? 0;
       out.set(materials[i].fresnel, baseIdx + 4);
       out[baseIdx + 7] = materials[i].metalness ?? 0;
+      out[baseIdx + 8] = materials[i].emission ?? 0;
     }
   };
 
