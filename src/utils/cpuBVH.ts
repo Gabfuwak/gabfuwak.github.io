@@ -135,29 +135,43 @@ function boxSAHCost(box: AABB, tri_nb: number){
 }
 
 function partitionSAHAxis(mesh: Mesh, triangleSet: Uint32Array, axis: Axis): { sorted: Uint32Array, splitIdx: number, cost: number } {
-  const pairs = Array.from(triangleSet, (tri) => {
+  const n = triangleSet.length;
+
+  // Compute centroids into a flat TypedArray — no object allocation
+  const centers = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const tri = triangleSet[i];
     const i0 = mesh.indices[tri*3];
     const i1 = mesh.indices[tri*3 + 1];
     const i2 = mesh.indices[tri*3 + 2];
-    const center = (mesh.positions[i0*3 + axis] + mesh.positions[i1*3 + axis] + mesh.positions[i2*3 + axis]) / 3;
-    return { tri, center };
-  });
-  pairs.sort((a, b) => a.center - b.center);
+    centers[i] = (mesh.positions[i0*3 + axis] + mesh.positions[i1*3 + axis] + mesh.positions[i2*3 + axis]) / 3;
+  }
 
-  const n = pairs.length;
-  const sorted = new Uint32Array(pairs.map(p => p.tri));
+  // Argsort: sort an index array by centroid value
+  const order = new Uint32Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  order.sort((a, b) => centers[a] - centers[b]);
+
+  // Build sorted triangle and centroid arrays
+  const sorted = new Uint32Array(n);
+  const sortedCenters = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    sorted[i] = triangleSet[order[i]];
+    sortedCenters[i] = centers[order[i]];
+  }
 
   const nb_buckets = 12;
-  const range = pairs[n - 1].center - pairs[0].center;
+  const range = sortedCenters[n - 1] - sortedCenters[0];
 
   let bestSplit = Math.floor(n / 2); // fallback: median
   let bestCost = 1e30;
 
   if (range > 0) {
     for (let b = 1; b < nb_buckets; b++) {
-      const threshold = pairs[0].center + b * (range / nb_buckets);
-      const splitIdx = pairs.findIndex(p => p.center >= threshold);
-      if (splitIdx <= 0) continue;
+      const threshold = sortedCenters[0] + b * (range / nb_buckets);
+      let splitIdx = 0;
+      while (splitIdx < n && sortedCenters[splitIdx] < threshold) splitIdx++;
+      if (splitIdx <= 0 || splitIdx >= n) continue;
 
       const cost = boxSAHCost(getTriangleSetAABB(mesh, sorted.subarray(0, splitIdx)), splitIdx)
                  + boxSAHCost(getTriangleSetAABB(mesh, sorted.subarray(splitIdx)), n - splitIdx);

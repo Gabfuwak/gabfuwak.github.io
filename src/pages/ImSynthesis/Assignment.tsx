@@ -275,7 +275,9 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   const BVH_FLOATS_PER_NODE = 8; // 8 data
 
+  const t0 = performance.now();
   const bvhRoot = buildSceneBVH(scene);
+  console.log(`BVH build: ${(performance.now() - t0).toFixed(1)}ms`);
   const { nodes: flat, primitives } = flattenBVH(bvhRoot);
 
   // Reorder triangle triples in indexData to match BVH leaf order,
