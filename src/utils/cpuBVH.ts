@@ -178,7 +178,7 @@ function partitionSAH(mesh: Mesh, triangleSet: Uint32Array) {
     const candidate = partitionSAHAxis(mesh, triangleSet, axis);
     if (candidate.cost < best.cost) best = candidate;
   }
-  return [best.sorted.slice(0, best.splitIdx), best.sorted.slice(best.splitIdx)];
+  return {partition: [best.sorted.slice(0, best.splitIdx), best.sorted.slice(best.splitIdx)], cost: best.cost};
 }
 
 function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array, depth: number): BVHNode {
@@ -191,7 +191,20 @@ function getTriangleSetBVH(mesh: Mesh, triangleSet: Uint32Array, depth: number):
     };
   }
 
-  const [leftSet, rightSet] = partitionSAH(mesh, triangleSet);
+  const partition_data = partitionSAH(mesh, triangleSet);
+  const [leftSet, rightSet] = partition_data.partition;
+
+
+  // if the partition + traversal cost (estimated with boxcost with one triangle) is more expensive than the current box, end it there
+  if (partition_data.cost + boxSAHCost(box, 1) > boxSAHCost(box, triangleSet.length)) {
+    return {
+      kind: "leaf",
+      boundingBox: box,
+      triangles: new Uint32Array(triangleSet),
+    };
+  }
+
+
   return {
     kind: "interior",
     boundingBox: box,
