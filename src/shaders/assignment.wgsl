@@ -459,7 +459,7 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
     var ray = ray_at(input.screen_pos);
     var sample_output_color = vec3f(0.0);
     var throughput = vec3f(1.0);
-    for (var bounce = 1u; bounce <= 10; bounce++) {
+    for (var bounce = 1u; bounce <= 100; bounce++) {
       var hit_data: Hit;
       if (!rayTrace(ray, &hit_data, false, 1e30)) { break; }
 
