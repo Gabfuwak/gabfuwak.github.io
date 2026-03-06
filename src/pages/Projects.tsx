@@ -39,7 +39,7 @@ export default function Projects() {
             <strong>A head attachment for Upkie, an open-source wheel-legged robot</strong>
           </a>
           <br />
-          <em>A 45 hours project over the last semester of my bachelor's degree. It is my primer in robotics at INRIA Paris, supervised by <a href="https://scaron.info/" target="_blank" rel="noopener noreferrer">Stéphane Caron</a>. This is where I learned the basics of CAD, 3D printing, soldering, electronics.</em>
+          <em>A 45 hours project over the last semester of my bachelor's degree. It is my primer in robotics at INRIA Paris, supervised by <a href="https://scaron.info/" target="_blank" rel="noopener noreferrer">Stéphane Caron</a>. This is where I learned the basics of robotics hardware with CAD, 3D printing, soldering, BLDC motors, vision algorithm integration...</em>
         </li>
         <li>
           <a href="https://github.com/Gabfuwak/minirust" target="_blank" rel="noopener noreferrer">
