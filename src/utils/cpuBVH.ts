@@ -110,18 +110,6 @@ function growAABB(x: number, y: number, z: number, box: AABB): void{
   if (z > box.maxCorner[2]) box.maxCorner[2] = z;
 }
 
-function mergeAABB(box1: AABB, box2: AABB): void{
-  const minX = box2.minCorner[0];
-  const minY = box2.minCorner[1];
-  const minZ = box2.minCorner[2];
-  const maxX = box2.maxCorner[0];
-  const maxY = box2.maxCorner[1];
-  const maxZ = box2.maxCorner[2];
-
-  growAABB(minX, minY, minZ, box1);
-  growAABB(maxX, maxY, maxZ, box1);
-
-}
 
 
 function getTriangleSetAABB(mesh: Mesh, triangleSet: Uint32Array): AABB {
@@ -181,65 +169,80 @@ function partitionSAHAxis(mesh: Mesh, triangleSet: Uint32Array, axis: Axis): { l
   }
 
   const bucket_counts = new Uint32Array(nb_buckets);
+  const bucketMins = new Float32Array(nb_buckets * 3).fill(Infinity);
+  const bucketMaxs = new Float32Array(nb_buckets * 3).fill(-Infinity);
 
-  const bucketAABBs: AABB[] = Array.from({ length: nb_buckets }, () => ({
-    minCorner: new Float32Array([Infinity, Infinity, Infinity]),
-    maxCorner: new Float32Array([-Infinity, -Infinity, -Infinity]),
-  }));
+  const scale = nb_buckets / (range_max - range_min);
+  const bucketIndices = new Uint8Array(n);
 
   // populate buckets
   for (let i = 0; i < n; i++) {
-    const bucketIdx = Math.min(Math.max(Math.floor((centers[i] - range_min) / (range_max - range_min) * nb_buckets), 0), nb_buckets - 1);
-    bucket_counts[bucketIdx]++;
+    const bi = Math.min(Math.max(Math.floor((centers[i] - range_min) * scale), 0), nb_buckets - 1);
+    bucketIndices[i] = bi;
+    bucket_counts[bi]++;
 
     const tri = triangleSet[i];
+    const b3 = bi * 3;
     for (let v = 0; v < 3; v++) {
       const vi = mesh.indices[tri * 3 + v];
       const x = mesh.positions[vi * 3];
       const y = mesh.positions[vi * 3 + 1];
       const z = mesh.positions[vi * 3 + 2];
-      growAABB(x, y, z, bucketAABBs[bucketIdx]);
+      if (x < bucketMins[b3])   bucketMins[b3]   = x;
+      if (y < bucketMins[b3+1]) bucketMins[b3+1] = y;
+      if (z < bucketMins[b3+2]) bucketMins[b3+2] = z;
+      if (x > bucketMaxs[b3])   bucketMaxs[b3]   = x;
+      if (y > bucketMaxs[b3+1]) bucketMaxs[b3+1] = y;
+      if (z > bucketMaxs[b3+2]) bucketMaxs[b3+2] = z;
     }
   }
 
-  const suffixAABBs: AABB[] = Array.from({ length: nb_buckets }, () => ({
-    minCorner: new Float32Array([Infinity, Infinity, Infinity]),
-    maxCorner: new Float32Array([-Infinity, -Infinity, -Infinity]),
-  }));
+  const suffixMins = new Float32Array(nb_buckets * 3).fill(Infinity);
+  const suffixMaxs = new Float32Array(nb_buckets * 3).fill(-Infinity);
   const suffixCounts = new Uint32Array(nb_buckets);
 
-  suffixAABBs[nb_buckets - 1] = {
-    minCorner: new Float32Array(bucketAABBs[nb_buckets - 1].minCorner),
-    maxCorner: new Float32Array(bucketAABBs[nb_buckets - 1].maxCorner),
-  };
+  const last3 = (nb_buckets - 1) * 3;
+  suffixMins[last3]   = bucketMins[last3];   suffixMins[last3+1] = bucketMins[last3+1]; suffixMins[last3+2] = bucketMins[last3+2];
+  suffixMaxs[last3]   = bucketMaxs[last3];   suffixMaxs[last3+1] = bucketMaxs[last3+1]; suffixMaxs[last3+2] = bucketMaxs[last3+2];
   suffixCounts[nb_buckets - 1] = bucket_counts[nb_buckets - 1];
 
   for (let b = nb_buckets - 2; b >= 0; b--) {
-    suffixAABBs[b] = {
-      minCorner: new Float32Array(suffixAABBs[b + 1].minCorner),
-      maxCorner: new Float32Array(suffixAABBs[b + 1].maxCorner),
-    };
-    if (bucket_counts[b] > 0) mergeAABB(suffixAABBs[b], bucketAABBs[b]);
+    const b3 = b * 3, next3 = b3 + 3;
+    suffixMins[b3]   = suffixMins[next3];   suffixMins[b3+1] = suffixMins[next3+1]; suffixMins[b3+2] = suffixMins[next3+2];
+    suffixMaxs[b3]   = suffixMaxs[next3];   suffixMaxs[b3+1] = suffixMaxs[next3+1]; suffixMaxs[b3+2] = suffixMaxs[next3+2];
+    if (bucket_counts[b] > 0) {
+      if (bucketMins[b3]   < suffixMins[b3])   suffixMins[b3]   = bucketMins[b3];
+      if (bucketMins[b3+1] < suffixMins[b3+1]) suffixMins[b3+1] = bucketMins[b3+1];
+      if (bucketMins[b3+2] < suffixMins[b3+2]) suffixMins[b3+2] = bucketMins[b3+2];
+      if (bucketMaxs[b3]   > suffixMaxs[b3])   suffixMaxs[b3]   = bucketMaxs[b3];
+      if (bucketMaxs[b3+1] > suffixMaxs[b3+1]) suffixMaxs[b3+1] = bucketMaxs[b3+1];
+      if (bucketMaxs[b3+2] > suffixMaxs[b3+2]) suffixMaxs[b3+2] = bucketMaxs[b3+2];
+    }
     suffixCounts[b] = suffixCounts[b + 1] + bucket_counts[b];
   }
 
-  let best_split = 1; // bucket index
+  let best_split = 1;
   let best_cost = 1e30;
 
   {
-    let leftAABB = {
-      minCorner: new Float32Array(bucketAABBs[0].minCorner),
-      maxCorner: new Float32Array(bucketAABBs[0].maxCorner),
-    };
+    let lMinX = bucketMins[0], lMinY = bucketMins[1], lMinZ = bucketMins[2];
+    let lMaxX = bucketMaxs[0], lMaxY = bucketMaxs[1], lMaxZ = bucketMaxs[2];
     let leftCount = bucket_counts[0];
 
     for (let b = 1; b < nb_buckets; b++) {
-      const cost = boxSAHCost(leftAABB, leftCount) + boxSAHCost(suffixAABBs[b], suffixCounts[b]);
-      if (cost < best_cost) {
-        best_cost = cost;
-        best_split = b;
+      const s3 = b * 3;
+      const lsx = lMaxX - lMinX, lsy = lMaxY - lMinY, lsz = lMaxZ - lMinZ;
+      const rsx = suffixMaxs[s3] - suffixMins[s3], rsy = suffixMaxs[s3+1] - suffixMins[s3+1], rsz = suffixMaxs[s3+2] - suffixMins[s3+2];
+      const cost = (lsx*(lsy+lsz) + lsy*lsz) * leftCount + (rsx*(rsy+rsz) + rsy*rsz) * suffixCounts[b];
+      if (cost < best_cost) { best_cost = cost; best_split = b; }
+      if (bucket_counts[b] > 0) {
+        if (bucketMins[s3]   < lMinX) lMinX = bucketMins[s3];
+        if (bucketMins[s3+1] < lMinY) lMinY = bucketMins[s3+1];
+        if (bucketMins[s3+2] < lMinZ) lMinZ = bucketMins[s3+2];
+        if (bucketMaxs[s3]   > lMaxX) lMaxX = bucketMaxs[s3];
+        if (bucketMaxs[s3+1] > lMaxY) lMaxY = bucketMaxs[s3+1];
+        if (bucketMaxs[s3+2] > lMaxZ) lMaxZ = bucketMaxs[s3+2];
       }
-      if (bucket_counts[b] > 0) mergeAABB(leftAABB, bucketAABBs[b]);
       leftCount += bucket_counts[b];
     }
   }
@@ -247,16 +250,14 @@ function partitionSAHAxis(mesh: Mesh, triangleSet: Uint32Array, axis: Axis): { l
   // partition triangleSet into left/right based on best_split bucket
   let leftCount = 0;
   for (let i = 0; i < n; i++) {
-    const b = Math.min(Math.floor((centers[i] - range_min) / (range_max - range_min) * nb_buckets), nb_buckets - 1);
-    if (b < best_split) leftCount++;
+    if (bucketIndices[i] < best_split) leftCount++;
   }
 
   const left = new Uint32Array(leftCount);
   const right = new Uint32Array(n - leftCount);
   let li = 0, ri = 0;
   for (let i = 0; i < n; i++) {
-    const b = Math.min(Math.floor((centers[i] - range_min) / (range_max - range_min) * nb_buckets), nb_buckets - 1);
-    if (b < best_split) left[li++] = triangleSet[i];
+    if (bucketIndices[i] < best_split) left[li++] = triangleSet[i];
     else right[ri++] = triangleSet[i];
   }
 
