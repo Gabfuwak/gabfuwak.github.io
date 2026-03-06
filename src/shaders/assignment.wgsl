@@ -59,8 +59,8 @@ struct Uniforms {
 // Shared BRDF
 // ============================================================================
 
-fn GGX_distribution(materialId: u32, halfVector: vec3<f32>, normal:vec3<f32>) -> f32 {
-  let roughness = max(0.045, uniforms.materials[materialId].roughness);
+fn GGX_distribution(material: Material, halfVector: vec3<f32>, normal:vec3<f32>) -> f32 {
+  let roughness = max(0.045, material.roughness);
   let alpha = roughness * roughness;
   let alpha_sq = alpha * alpha;
 
@@ -75,8 +75,8 @@ fn GGX_distribution(materialId: u32, halfVector: vec3<f32>, normal:vec3<f32>) ->
   return alpha_sq / max(1e-7, denom);
 }
 
-fn schlick_fresnel(materialId: u32, viewDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32>{
-  let f_0: vec3<f32> = uniforms.materials[materialId].fresnel;
+fn schlick_fresnel(material: Material, viewDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32>{
+  let f_0: vec3<f32> = material.fresnel;
   let cosTheta = max(0.0, dot(viewDir, halfVector));
   return f_0 + (1.0 - f_0) * pow(max(0.0, 1.0 - cosTheta), 5.0);
 }
@@ -87,17 +87,17 @@ fn G_1_schlick_approx(vec: vec3<f32>, normal: vec3<f32>, k: f32) -> f32{
   return NdotV / max(0.0001, denom);
 }
 
-fn smith_geometric(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>) -> f32 {
-  let roughness = max(0.045, uniforms.materials[materialId].roughness);
+fn smith_geometric(material: Material, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>) -> f32 {
+  let roughness = max(0.045, material.roughness);
   let alpha = roughness * roughness;
   let k = alpha * sqrt(2.0 / 3.14159265359);
   return G_1_schlick_approx(viewDir, normal, k) * G_1_schlick_approx(lightDir, normal, k);
 }
 
-fn microfacet_BRDF(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32> {
-  let d = GGX_distribution(materialId, halfVector, normal);
-  let f = schlick_fresnel(materialId, viewDir, halfVector);
-  let g = smith_geometric(materialId, normal, viewDir, lightDir);
+fn microfacet_BRDF(material: Material, normal: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>, halfVector: vec3<f32>) -> vec3<f32> {
+  let d = GGX_distribution(material, halfVector, normal);
+  let f = schlick_fresnel(material, viewDir, halfVector);
+  let g = smith_geometric(material, normal, viewDir, lightDir);
 
   let numerator = d * f * g;
   let NdotL = max(0.0, dot(normal, lightDir));
@@ -108,7 +108,6 @@ fn microfacet_BRDF(materialId: u32, normal: vec3<f32>, viewDir: vec3<f32>, light
 }
 
 fn evaluateRadiance(
-  materialId: u32,
   light: PointLight,
   worldPos: vec3<f32>,
   normal_in: vec3<f32>,
@@ -124,11 +123,9 @@ fn evaluateRadiance(
   let coneAngle = light.angle;
   let inCone = dot(normalize(light.direction), lightToPoint) >= cos(coneAngle / 2.0);
 
-  let emission = uniforms.materials[materialId].emission;
   if (!inCone) {
-    return vec3f(emission);
+    return vec3f(material.emission);
   }
-
 
   let lightDistance = length(lightVec) / 100.0;
   let constant = 1.0;
@@ -139,13 +136,11 @@ fn evaluateRadiance(
   let lambertFactor = max(0.0, dot(lightDir, normalize(normal)));
 
   let diffuse_term = material.baseColor * lambertFactor * light.color * light.intensity * attenuationFactor;
-  let specular_term = microfacet_BRDF(materialId, normal, viewDir, lightDir, halfVector) * lambertFactor * light.color * light.intensity * attenuationFactor;
+  let specular_term = microfacet_BRDF(material, normal, viewDir, lightDir, halfVector) * lambertFactor * light.color * light.intensity * attenuationFactor;
 
-  let kD = (1.0 - uniforms.materials[materialId].metalness) * (1.0 - uniforms.materials[materialId].fresnel);
+  let kD = (1.0 - material.metalness) * (1.0 - material.fresnel);
 
-
-
-  return kD * diffuse_term + specular_term + emission;
+  return kD * diffuse_term + specular_term + material.emission;
 }
 
 
@@ -191,7 +186,6 @@ fn rastFragmentMain(input: RastVertexOutput) -> @location(0) vec4f {
 
   for(var i = 0u; i < u32(uniforms.nbLights); i++) {
     output_color += evaluateRadiance(
-      input.objectId,
       uniforms.lights[i],
       input.worldPos.xyz,
       input.normal.xyz,
@@ -236,9 +230,9 @@ fn resolve_material(material_id: u32, uv: vec2f) -> Material {
   switch(material_id) {
     case 3u: {
       var mat = uniforms.materials[material_id];
-      let t = uniforms.time * 0.03;
+      let t = uniforms.time / 100.0;
       mat.baseColor += vec3f(octavePerlin3D(vec3f(uv, t), 10, 0.9, 5));
-      mat.roughness += octavePerlin3D(vec3f(uv + 1.0, t), 10, 1, 5);
+      mat.roughness += octavePerlin3D(vec3f(uv + 1.0, t/10), 100, 0.9, 5);
       mat.metalness += octavePerlin3D(vec3f(uv + 2.0, t), 10, 0.4, 5);
       return mat;
     }
@@ -481,7 +475,6 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
 
         if (!is_shadow) {
           output_color += throughput * evaluateRadiance(
-            sp.objectId,
             uniforms.lights[i],
             sp.world_pos,
             sp.normal,
@@ -491,7 +484,7 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
         }
       }
 
-      let F = schlick_fresnel(sp.objectId, viewDir, sp.normal);
+      let F = schlick_fresnel(sp.material, viewDir, sp.normal);
       //if (all(throughput * F < vec3f(0.001))) { break; }
 
       // white reflects more than black so we need a kd here too

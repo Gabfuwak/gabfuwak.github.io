@@ -34,16 +34,15 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
     2000,
   );
 
-  //const boxCenter = [278, 274, 280];
+  const boxCenter = [278, 274, 280];
 
-  /*const normalize = (x: number, y: number, z: number): Float32Array => {
+  const normalize = (x: number, y: number, z: number): Float32Array => {
     const len = Math.sqrt(x * x + y * y + z * z);
     return new Float32Array([x / len, y / len, z / len]);
   };
-  */
 
   const lights: Light[] = [
-    /*// Keylight
+    // Keylight
     {
         position: new Float32Array([71, 412, 140]),
         color: new Float32Array([1.0, 1.0, 1.0]),
@@ -90,7 +89,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
           boxCenter[2] - 280
         ),
         angle: 360.0
-    },*/
+    },
   ];
 
   const whiteMaterial: Material = {
