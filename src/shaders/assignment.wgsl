@@ -438,12 +438,21 @@ fn pick_main() {
 }
 
 fn sampleSemiSphere(n : vec3f, seed: f32) -> vec3f{
-  let vec3seed = vec3f(seed, seed+1, seed +2);
-  let phi = random3D(vec3seed) * 6.28318530718;
-  let cos_theta = random3D(vec3seed + vec3f(1.0)); // [0, 1] for hemisphere
+  // Chain PCG in integer space to avoid correlated bitcast of adjacent floats
+  let s0 = pcg_hash(bitcast<u32>(seed));
+  let s1 = pcg_hash(s0);
+  let phi       = f32(s0) / f32(0xFFFFFFFFu) * 6.28318530718;
+  let cos_theta = f32(s1) / f32(0xFFFFFFFFu); // [0, 1] for hemisphere
   let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
   // add semi sphere variation around the normal
-  return normalize(n + vec3f(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta));
+
+  let up        = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(n.y) > 0.9);
+  let tangent   = normalize(cross(up, n));
+  let bitangent = cross(n, tangent);
+
+  return normalize(sin_theta * cos(phi) * tangent
+                 + sin_theta * sin(phi) * bitangent
+                 + cos_theta            * n);
 }
 
 @fragment
@@ -492,11 +501,14 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
       let kD = (1.0 - sp.material.metalness) * (vec3f(1.0) - F);
       throughput *= kD * sp.material.baseColor + F;
 
-      let seed = dot(input.screen_pos, vec2f(127.1, 311.7)) + f32(sample) * 1337.0 + f32(bounce) * 7919.0 + uniforms.time;
+      let px = vec2u(input.clip_pos.xy);
+      let seed_u = pcg_hash(px.x ^ pcg_hash(px.y ^ pcg_hash(sample ^ pcg_hash(bounce ^ u32(uniforms.frame_count)))));
+      let seed = bitcast<f32>(seed_u);
       let random_ray_dir = sampleSemiSphere(sp.normal, seed);
 
       ray = Ray(sp.world_pos + sp.normal * 0.001, random_ray_dir);
-      if(all(throughput < vec3f(random(vec2f(seed))))) {break;} // russian roulette
+      let rr_seed = pcg_hash(seed_u ^ 0xDEADBEEFu);
+      if(all(throughput < vec3f(f32(rr_seed) / f32(0xFFFFFFFFu)))) {break;} // russian roulette
     }
     output_color += sample_output_color;
   }
