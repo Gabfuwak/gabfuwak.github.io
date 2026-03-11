@@ -102,6 +102,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       //fresnel: new Float32Array([0.9, 0.9, 0.9]), // mirror
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
       emission: 0.0,
+      basePerlinFreq: 0, perlinOctaveAmp: 0, perlinOctaveNb: 0,
   };
   const redMaterial:   Material = {
       id: 1,
@@ -110,6 +111,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       metalness: 0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
       emission: 0.0,
+      basePerlinFreq: 0, perlinOctaveAmp: 0, perlinOctaveNb: 0,
   };
   const greenMaterial: Material = {
       id: 2,
@@ -118,6 +120,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       metalness: 0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
       emission: 0.0,
+      basePerlinFreq: 0, perlinOctaveAmp: 0, perlinOctaveNb: 0,
   };
   const noisyDragonMaterial: Material = {
       id: 3,
@@ -126,6 +129,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       metalness: 1.0,
       fresnel: new Float32Array([1.0, 0.71, 0.29]), // gold
       emission: 0.0,
+      basePerlinFreq: 10, perlinOctaveAmp: 0.9, perlinOctaveNb: 5,
   };
   const lightMaterial: Material = {
       id: 4,
@@ -134,6 +138,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
       metalness: 0.0,
       fresnel: new Float32Array([0.05, 0.05, 0.05]), // plastic
       emission: 3.0,
+      basePerlinFreq: 0, perlinOctaveAmp: 0, perlinOctaveNb: 0,
   };
 
   const identityTransform = new Float32Array([
@@ -230,7 +235,7 @@ interface Engine {
   stopAnimation(): void;
   setUseRaytracer(val: boolean): void;
   setSpp(val: number): void;
-  updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number): void;
+  updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number, basePerlinFreq?: number, perlinOctaveAmp?: number, perlinOctaveNb?: number): void;
   bvhRoot: BVHNode;
   setDebugAABBs(aabbs: AABB[]): void;
   pickObject(sx: number, sy: number): Promise<number>;
@@ -363,7 +368,10 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       out[baseIdx + 3] = materials[i].roughness ?? 0;
       out.set(materials[i].fresnel, baseIdx + 4);
       out[baseIdx + 7] = materials[i].metalness ?? 0;
-      out[baseIdx + 8] = materials[i].emission ?? 0;
+      out[baseIdx + 8] = materials[i].emission;
+      out[baseIdx + 9] = materials[i].basePerlinFreq;
+      out[baseIdx + 10] = materials[i].perlinOctaveAmp;
+      out[baseIdx + 11] = materials[i].perlinOctaveNb;
     }
   };
 
@@ -677,11 +685,14 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       return id;
     },
 
-    updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number) {
+    updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number, basePerlinFreq?: number, perlinOctaveAmp?: number, perlinOctaveNb?: number) {
       if (idx >= 0 && idx < scene.objects.length) {
         scene.objects[idx].material.diffuseAlbedo.set(rgb);
         if (roughness !== undefined) scene.objects[idx].material.roughness = roughness;
         if (metalness !== undefined) scene.objects[idx].material.metalness = metalness;
+        if (basePerlinFreq !== undefined) scene.objects[idx].material.basePerlinFreq = basePerlinFreq;
+        if (perlinOctaveAmp !== undefined) scene.objects[idx].material.perlinOctaveAmp = perlinOctaveAmp;
+        if (perlinOctaveNb !== undefined) scene.objects[idx].material.perlinOctaveNb = perlinOctaveNb;
         if (!destroyed) renderFrame(performance.now());
       }
     },
@@ -761,6 +772,9 @@ export default function Playground() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [roughness, setRoughness] = useState(0.5);
   const [metalness, setMetalness] = useState(0);
+  const [basePerlinFreq, setBasePerlinFreq] = useState(0);
+  const [perlinOctaveAmp, setPerlinOctaveAmp] = useState(0);
+  const [perlinOctaveNb, setPerlinOctaveNb] = useState(0);
   const [spp, setSpp] = useState(1);
   const [selectedModel, setSelectedModel] = useState<ModelName>('Dragon (2k tri)');
 
@@ -787,6 +801,9 @@ export default function Playground() {
     setColor(linearRGBToHex(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]));
     setRoughness(mat.roughness ?? 0.5);
     setMetalness(mat.metalness ?? 0);
+    setBasePerlinFreq(mat.basePerlinFreq);
+    setPerlinOctaveAmp(mat.perlinOctaveAmp);
+    setPerlinOctaveNb(mat.perlinOctaveNb);
   };
 
   useEffect(() => {
@@ -837,6 +854,9 @@ export default function Playground() {
           setColor(linearRGBToHex(mat.diffuseAlbedo[0], mat.diffuseAlbedo[1], mat.diffuseAlbedo[2]));
           setRoughness(mat.roughness ?? 0.5);
           setMetalness(mat.metalness ?? 0);
+          setBasePerlinFreq(mat.basePerlinFreq);
+          setPerlinOctaveAmp(mat.perlinOctaveAmp);
+          setPerlinOctaveNb(mat.perlinOctaveNb);
         }
         setSceneReady(true);
 
@@ -1030,7 +1050,7 @@ export default function Playground() {
                         onChange={(hex) => {
                           setColor(hex);
                           const [r, g, b] = hexToLinearRGB(hex);
-                          engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness);
+                          engineRef.current?.updateMaterial(selectedObject, [r, g, b], roughness, metalness, basePerlinFreq, perlinOctaveAmp, perlinOctaveNb);
                         }}
                       />
                     </div>
@@ -1051,7 +1071,7 @@ export default function Playground() {
                     const r = parseFloat(e.target.value);
                     setRoughness(r);
                     const [red, green, blue] = hexToLinearRGB(color);
-                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], r, metalness);
+                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], r, metalness, basePerlinFreq, perlinOctaveAmp, perlinOctaveNb);
                   }}
                   style={{ width: '100%' }}
                 />
@@ -1070,7 +1090,64 @@ export default function Playground() {
                     const m = parseFloat(e.target.value);
                     setMetalness(m);
                     const [red, green, blue] = hexToLinearRGB(color);
-                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], roughness, m);
+                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], roughness, m, basePerlinFreq, perlinOctaveAmp, perlinOctaveNb);
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="basePerlinFreq">Perlin Freq: {basePerlinFreq.toFixed(1)}</label><br />
+                <input
+                  type="range"
+                  id="basePerlinFreq"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  value={basePerlinFreq}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setBasePerlinFreq(v);
+                    const [red, green, blue] = hexToLinearRGB(color);
+                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], roughness, metalness, v, perlinOctaveAmp, perlinOctaveNb);
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="perlinOctaveAmp">Perlin Amplitude: {perlinOctaveAmp.toFixed(2)}</label><br />
+                <input
+                  type="range"
+                  id="perlinOctaveAmp"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={perlinOctaveAmp}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setPerlinOctaveAmp(v);
+                    const [red, green, blue] = hexToLinearRGB(color);
+                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], roughness, metalness, basePerlinFreq, v, perlinOctaveNb);
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label htmlFor="perlinOctaveNb">Perlin Octaves: {perlinOctaveNb}</label><br />
+                <input
+                  type="range"
+                  id="perlinOctaveNb"
+                  min="0"
+                  max="16"
+                  step="1"
+                  value={perlinOctaveNb}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setPerlinOctaveNb(v);
+                    const [red, green, blue] = hexToLinearRGB(color);
+                    engineRef.current?.updateMaterial(selectedObject, [red, green, blue], roughness, metalness, basePerlinFreq, perlinOctaveAmp, v);
                   }}
                   style={{ width: '100%' }}
                 />

@@ -31,6 +31,9 @@ export interface Material{
   fresnel: Float32Array, // vec3f
   metalness: number, //f32
   emission: number, //f32
+  basePerlinFreq: number, //f32
+  perlinOctaveAmp: number, //f32
+  perlinOctaveNb: number,  //f32
 }
 
 export interface MergedScene {
@@ -97,6 +100,9 @@ export function extractSceneData(scene: Scene) : MergedScene {
       fresnel: new Float32Array(3),
       metalness: 0,
       emission: 0,
+      basePerlinFreq: 0,
+      perlinOctaveAmp: 0,
+      perlinOctaveNb: 0,
     });
   }
 

@@ -13,9 +13,9 @@ struct Material{
   fresnel: vec3<f32>,
   metalness: f32,
   emission: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
+  basePerlinFreq: f32,
+  perlinOctaveAmp: f32,
+  perlinOctaveNb: f32,
 }
 
 struct BVHNode{
@@ -227,16 +227,17 @@ struct SurfacePoint {
 };
 
 fn resolve_material(material_id: u32, uv: vec2f) -> Material {
-  switch(material_id) {
-    case 3u: {
+  switch(material_id) { // switch stays so that later i can add a custom material scheme, maybe with graphs we'll see
+    default: {
       var mat = uniforms.materials[material_id];
-      let t = uniforms.time / 100.0;
-      mat.baseColor += vec3f(octavePerlin3D(vec3f(uv, t), 10, 0.9, 5));
-      mat.roughness += octavePerlin3D(vec3f(uv + 1.0, t/10), 100, 0.9, 5);
-      mat.metalness += octavePerlin3D(vec3f(uv + 2.0, t), 10, 0.4, 5);
+      if(mat.perlinOctaveAmp > 1e-30){
+        let t = uniforms.time / 100.0;
+        mat.baseColor += vec3f(octavePerlin3D(vec3f(uv, t), mat.basePerlinFreq, mat.perlinOctaveAmp, u32(mat.perlinOctaveNb)));
+        mat.roughness += octavePerlin3D(vec3f(uv + 1.0, t), mat.basePerlinFreq, mat.perlinOctaveAmp, u32(mat.perlinOctaveNb));
+        mat.metalness += octavePerlin3D(vec3f(uv + 2.0, t), mat.basePerlinFreq, mat.perlinOctaveAmp, u32(mat.perlinOctaveNb));
+      }
       return mat;
     }
-    default: { return uniforms.materials[material_id]; }
   }
 }
 
