@@ -48,7 +48,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
     {
         position: new Float32Array([71, 412, 140]),
         color: new Float32Array([1.0, 1.0, 1.0]),
-        intensity: 2,
+        intensity: 0.8,
         direction: normalize(
           boxCenter[0] - 71,
           boxCenter[1] - 412,
@@ -56,11 +56,12 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
         ),
         angle: 90.0
     },
+
     // Fill light
     {
         position: new Float32Array([485, 137, 140]),
         color: new Float32Array([0.0, 0.2, 0.8]),
-        intensity: 2.5,
+        intensity: 0.6,
         direction: normalize(
           boxCenter[0] - 485,
           boxCenter[1] - 137,
@@ -72,7 +73,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
     {
         position: new Float32Array([71, 137, 70]),
         color: new Float32Array([0.7, 0.3, 0.0]),
-        intensity: 0.8,
+        intensity: 0.2,
         direction: normalize(
           boxCenter[0] - 71,
           boxCenter[1] - 137,
@@ -84,7 +85,7 @@ function buildScene(canvas: HTMLCanvasElement, modelName: ModelName): Scene {
     {
         position: new Float32Array([554, 494, 280]),
         color: new Float32Array([1.0, 1.0, 1.0]),
-        intensity: 0.8,
+        intensity: 0.2,
         direction: normalize(
           boxCenter[0] - 554,
           boxCenter[1] - 494,
@@ -235,6 +236,7 @@ interface Engine {
   stopAnimation(): void;
   setUseRaytracer(val: boolean): void;
   setSpp(val: number): void;
+  resetAccum(): void;
   updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number, basePerlinFreq?: number, perlinOctaveAmp?: number, perlinOctaveNb?: number): void;
   bvhRoot: BVHNode;
   setDebugAABBs(aabbs: AABB[]): void;
@@ -349,7 +351,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   let spp = 1;
 
-  const packLightsAndMaterials = (out: Float32Array) => {
+  const packLightsAndMaterials = (out: Float32Array, frame_count = 0) => {
     out.set(scene.camera.position, 16); // camera_pos at index 16-18 (shared)
     out[19] = scene.lights.length;      // nbLights at index 19 (shared)
     for (let i = 0; i < scene.lights.length; i++) {
@@ -362,6 +364,8 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     const matOffset = 20 + MAX_LIGHTS * 12;
     out[matOffset] = materials.length;
     out[matOffset + 1] = spp;
+    out[matOffset + 2] = frame_count;
+    out[matOffset + 3] = canvas.width;
     for (let i = 0; i < materials.length; i++) {
       const baseIdx = matOffset + 4 + i * MATERIAL_SIZE;
       out.set(materials[i].diffuseAlbedo, baseIdx);
@@ -375,12 +379,12 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     }
   };
 
-  const packUniforms = (time = 0): Float32Array<ArrayBuffer> => {
+  const packUniforms = (time = 0, frame_count = 0): Float32Array<ArrayBuffer> => {
     const data = new Float32Array(UNIFORM_LENGTH);
     // Rasterizer MVP (indices 0-15)
     data.set(getMVP(scene.camera), 0);
     // Shared lights/materials (indices 16+)
-    packLightsAndMaterials(data);
+    packLightsAndMaterials(data, frame_count);
     // Raytracer camera basis (at RAY_OFFSET)
     const basis = getCameraBasis(scene.camera);
     const fovFactor = Math.tan(scene.camera.fov / 2);
@@ -397,6 +401,14 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   device.queue.writeBuffer(uniformBuffer, 0, packUniforms());
 
+
+
+  // ----- Accumulation buffer -----
+  const accumBuffer = device.createBuffer({
+    size: canvas.width * canvas.height * 4 * 4, // vec4f per pixel
+    usage: GPUBufferUsage.STORAGE,
+  });
+
   // ----- Pipelines -----
 
   const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
@@ -412,6 +424,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       { binding: 4, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       { binding: 5, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       { binding: 6, visibility: GPUShaderStage.FRAGMENT,                         buffer: { type: "read-only-storage" } },
+      { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "storage" } },
     ] as GPUBindGroupLayoutEntry[],
   });
 
@@ -425,6 +438,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       { binding: 4, resource: { buffer: normalBuffer } },
       { binding: 5, resource: { buffer: uvBuffer } },
       { binding: 6, resource: { buffer: bvhBuffer } },
+      { binding: 7, resource: { buffer: accumBuffer } },
     ],
   });
 
@@ -536,11 +550,11 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   let animating = false;
   let animFrameId = 0;
   let aabbIndexCount = 0;
-  let frameCount = 0;
+  let frameCount = 1;
   const startTime = performance.now();
 
   const updateUniforms = (time = 0) => {
-    device.queue.writeBuffer(uniformBuffer, 0, packUniforms(time));
+    device.queue.writeBuffer(uniformBuffer, 0, packUniforms(time, frameCount));
   };
 
   const renderFrame = (timestamp: number) => {
@@ -666,6 +680,10 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
     setSpp(val: number) {
       spp = val;
+    },
+
+    resetAccum() {
+      frameCount = 1;
     },
 
     async pickObject(sx: number, sy: number): Promise<number> {
@@ -903,17 +921,20 @@ export default function Playground() {
       if (cam) {
         const sp = MOVE_SPEED * dt;
 
-        if (keys.has('KeyW')) moveForward(cam, sp);
-        if (keys.has('KeyS')) moveForward(cam, -sp);
-        if (keys.has('KeyA')) pan(cam, -sp, 0);
-        if (keys.has('KeyD')) pan(cam, sp, 0);
-        if (keys.has('KeyR')) pan(cam, 0, sp);
-        if (keys.has('KeyF')) pan(cam, 0, -sp);
+        let moved = false;
+        if (keys.has('KeyW')) { moveForward(cam, sp); moved = true; }
+        if (keys.has('KeyS')) { moveForward(cam, -sp); moved = true; }
+        if (keys.has('KeyA')) { pan(cam, -sp, 0); moved = true; }
+        if (keys.has('KeyD')) { pan(cam, sp, 0); moved = true; }
+        if (keys.has('KeyR')) { pan(cam, 0, sp); moved = true; }
+        if (keys.has('KeyF')) { pan(cam, 0, -sp); moved = true; }
 
-        if (keys.has('ArrowLeft'))  rotateYaw(cam, ROT_SPEED * dt);
-        if (keys.has('ArrowRight')) rotateYaw(cam, -ROT_SPEED * dt);
-        if (keys.has('ArrowUp'))    rotatePitch(cam, ROT_SPEED * dt);
-        if (keys.has('ArrowDown'))  rotatePitch(cam, -ROT_SPEED * dt);
+        if (keys.has('ArrowLeft'))  { rotateYaw(cam, ROT_SPEED * dt); moved = true; }
+        if (keys.has('ArrowRight')) { rotateYaw(cam, -ROT_SPEED * dt); moved = true; }
+        if (keys.has('ArrowUp'))    { rotatePitch(cam, ROT_SPEED * dt); moved = true; }
+        if (keys.has('ArrowDown'))  { rotatePitch(cam, -ROT_SPEED * dt); moved = true; }
+
+        if (moved) engineRef.current?.resetAccum();
       }
 
       rafId = requestAnimationFrame(tick);
@@ -1002,6 +1023,7 @@ export default function Playground() {
                   const val = parseInt(e.target.value);
                   setSpp(val);
                   engineRef.current?.setSpp(val);
+                  engineRef.current?.resetAccum();
                 }}
               />
             </div>

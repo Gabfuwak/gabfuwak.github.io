@@ -34,8 +34,8 @@ struct Uniforms {
   lights: array<PointLight, 4>,
   nbMaterials: f32,
   spp: f32,
-  _pad5: f32,
-  _pad6: f32,
+  frame_count: f32,
+  canvas_width: f32,
   materials: array<Material, 16>,
   // Raytracer (indices 200-211, fits in the existing UNIFORM_LENGTH buffer)
   camera_forward: vec3f,
@@ -53,7 +53,7 @@ struct Uniforms {
 @group(0) @binding(4) var<storage, read>    normals   : array<f32>;
 @group(0) @binding(5) var<storage, read>    uvs       : array<f32>;
 @group(0) @binding(6) var<storage, read>    bvh       : array<BVHNode>;
-
+@group(0) @binding(7) var<storage, read_write> accum: array<vec4f>;
 
 // ============================================================================
 // Shared BRDF
@@ -227,9 +227,9 @@ struct SurfacePoint {
 };
 
 fn resolve_material(material_id: u32, uv: vec2f) -> Material {
+  var mat = uniforms.materials[material_id];
   switch(material_id) { // switch stays so that later i can add a custom material scheme, maybe with graphs we'll see
     default: {
-      var mat = uniforms.materials[material_id];
       if(mat.perlinOctaveAmp > 1e-30){
         let t = uniforms.time / 100.0;
         mat.baseColor += vec3f(octavePerlin3D(vec3f(uv, t), mat.basePerlinFreq, mat.perlinOctaveAmp, u32(mat.perlinOctaveNb)));
@@ -501,5 +501,13 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
     output_color += sample_output_color;
   }
 
-  return vec4f(output_color/uniforms.spp, 1.0);
+  let coords = vec2u(input.clip_pos.xy);
+  let idx = coords.y * u32(uniforms.canvas_width) + coords.x;
+  let sample = output_color / uniforms.spp;
+  if (uniforms.frame_count <= 1.0) {
+    accum[idx] = vec4f(sample, 1.0);
+  } else {
+    accum[idx] += vec4f(sample, 0.0);
+  }
+  return vec4f(accum[idx].rgb / uniforms.frame_count, 1.0);
 }
