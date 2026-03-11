@@ -33,7 +33,7 @@ struct Uniforms {
   nbLights: f32,
   lights: array<PointLight, 4>,
   nbMaterials: f32,
-  nbBounces: f32,
+  spp: f32,
   _pad5: f32,
   _pad6: f32,
   materials: array<Material, 16>,
@@ -449,11 +449,11 @@ fn sampleSemiSphere(n : vec3f, seed: f32) -> vec3f{
 fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
   var output_color = vec3f(0.0);
 
-  for(var sample = 0u; sample < u32(uniforms.nbBounces); sample++){
+  for(var sample = 0u; sample < u32(uniforms.spp); sample++){
     var ray = ray_at(input.screen_pos);
     var sample_output_color = vec3f(0.0);
     var throughput = vec3f(1.0);
-    for (var bounce = 1u; bounce <= 100; bounce++) {
+    for (var bounce = 1u; bounce <= 5; bounce++) {
       var hit_data: Hit;
       if (!rayTrace(ray, &hit_data, false, 1e30)) { break; }
 
@@ -500,5 +500,5 @@ fn rayFragmentMain(input: RayVertexOutput) -> @location(0) vec4f {
     output_color += sample_output_color;
   }
 
-  return vec4f(output_color/uniforms.nbBounces, 1.0);
+  return vec4f(output_color/uniforms.spp, 1.0);
 }

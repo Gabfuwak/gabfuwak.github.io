@@ -2,11 +2,13 @@ import { useEffect, useState, useRef } from 'react';
 import { HexColorPicker } from 'react-colorful';
 import { load_mesh, create_quad, get_mat } from '../../utils/mesh_gen';
 import dragonLowObj from '../../assets/dragon_2348.obj?raw';
-import dragonHighObj from '../../assets/dragon_117452.obj?raw';
+import dragonMidObj from '../../assets/dragon_117452.obj?raw';
+//import dragonHighObj from '../../assets/dragon_full.obj?raw';
 
 const MODELS = {
   'Dragon (2k tri)': dragonLowObj,
-  'Dragon (117k tri)': dragonHighObj,
+  'Dragon (117k tri)': dragonMidObj,
+  //'Dragon (2m tri)': dragonHighObj,
 } as const;
 
 type ModelName = keyof typeof MODELS;
@@ -227,7 +229,7 @@ interface Engine {
   startAnimation(): void;
   stopAnimation(): void;
   setUseRaytracer(val: boolean): void;
-  setNbBounces(val: number): void;
+  setSpp(val: number): void;
   updateMaterial(idx: number, rgb: [number, number, number], roughness?: number, metalness?: number): void;
   bvhRoot: BVHNode;
   setDebugAABBs(aabbs: AABB[]): void;
@@ -340,7 +342,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
   const RAY_OFFSET = MVP_SIZE + SHARED_HEADER + LIGHTS_SIZE + MATERIALS_HEADER + MAX_MATERIALS * MATERIAL_SIZE;
   const UNIFORM_LENGTH = RAY_OFFSET + RAY_CAMERA_SIZE;
 
-  let nbBounces = 1;
+  let spp = 1;
 
   const packLightsAndMaterials = (out: Float32Array) => {
     out.set(scene.camera.position, 16); // camera_pos at index 16-18 (shared)
@@ -354,7 +356,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
     }
     const matOffset = 20 + MAX_LIGHTS * 12;
     out[matOffset] = materials.length;
-    out[matOffset + 1] = nbBounces;
+    out[matOffset + 1] = spp;
     for (let i = 0; i < materials.length; i++) {
       const baseIdx = matOffset + 4 + i * MATERIAL_SIZE;
       out.set(materials[i].diffuseAlbedo, baseIdx);
@@ -481,7 +483,7 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
 
   // ----- AABB debug pipeline -----
 
-  const MAX_AABB = 120000;
+  const MAX_AABB = 1200000;
   const aabbVertexBuffer = device.createBuffer({
     label: "AABB vertices",
     size: MAX_AABB * 8 * 3 * 4,
@@ -654,8 +656,8 @@ async function createEngine(canvas: HTMLCanvasElement, scene: Scene): Promise<En
       useRaytracer = val;
     },
 
-    setNbBounces(val: number) {
-      nbBounces = val;
+    setSpp(val: number) {
+      spp = val;
     },
 
     async pickObject(sx: number, sy: number): Promise<number> {
@@ -759,7 +761,7 @@ export default function Playground() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [roughness, setRoughness] = useState(0.5);
   const [metalness, setMetalness] = useState(0);
-  const [nbBounces, setNbBounces] = useState(1);
+  const [spp, setSpp] = useState(1);
   const [selectedModel, setSelectedModel] = useState<ModelName>('Dragon (2k tri)');
 
   const [bvhDepth, setBvhDepth] = useState(0);
@@ -813,7 +815,7 @@ export default function Playground() {
         setSceneReady(false);
         setIsAnimating(false);
         setUseRaytracer(false);
-        setNbBounces(1);
+        setSpp(1);
         setBvhDepth(0);
         setPickerOpen(false);
         const scene = buildScene(canvas, selectedModel);
@@ -968,18 +970,18 @@ export default function Playground() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '140px' }}>
-              <label htmlFor="nbBounces">Bounces: {nbBounces}</label>
+              <label htmlFor="spp">SPP: {spp}</label>
               <input
                 type="range"
-                id="nbBounces"
+                id="spp"
                 min="1"
-                max="20"
+                max="256"
                 step="1"
-                value={nbBounces}
+                value={spp}
                 onChange={(e) => {
                   const val = parseInt(e.target.value);
-                  setNbBounces(val);
-                  engineRef.current?.setNbBounces(val);
+                  setSpp(val);
+                  engineRef.current?.setSpp(val);
                 }}
               />
             </div>
