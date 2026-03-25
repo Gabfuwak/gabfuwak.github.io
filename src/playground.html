@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebGPU Playground</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a> | <a href="/projects.html">Projects</a> | <a href="/experiments.html">Experiments</a>
+    <hr />
+  </nav>
+
+  <h1>WebGPU playground</h1>
+  <p>This is what I'm currently working on. It might be a future experiment or a class assignment, who nose...</p>
+
+  <div id="no-webgpu" style="display:none;">
+    <div class="webgpu-warning">
+      <p><strong>⚠ WebGPU is not supported or not enabled in your browser</strong></p>
+      <p><strong>How to enable WebGPU:</strong></p>
+      <p><strong>Chrome:</strong></p>
+      <ul>
+        <li>Go to <code>chrome://flags</code></li>
+        <li>Search for "Unsafe WebGPU"</li>
+        <li>Enable the flag and restart Chrome</li>
+        <li>Check that Vulkan is enabled at <code>chrome://gpu</code> (if not enabled, it will work but be slower)</li>
+      </ul>
+      <p><strong>Firefox:</strong></p>
+      <ul>
+        <li>Go to <code>about:config</code></li>
+        <li>Search for <code>dom.webgpu.enabled</code></li>
+        <li>Set it to true and restart Firefox</li>
+        <li><em>Note: Firefox on Linux does not support Vulkan, so WebGPU will be much slower</em></li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="webgpu-content" style="display:none;">
+    <div id="performance-warning" style="display:none;">
+      <div style="text-align:center;margin:0 auto 1rem auto;max-width:600px;">
+        <p id="vulkan-summary" style="color:red;font-size:0.9rem;cursor:pointer;border:1px solid red;background:#ffe6e6;padding:0.5rem;margin:0;">
+          Running too slow? Click here.
+        </p>
+        <div id="vulkan-detail" style="display:none;border:1px solid red;background:#ffe6e6;padding:1rem;text-align:left;">
+          <p><strong>⚠ Low performance detected</strong></p>
+          <p>Your setup may be too slow for complex renderings.</p>
+          <p><strong>Chrome:</strong></p>
+          <ul>
+            <li>Go to <code>chrome://gpu</code> to check your graphics feature status</li>
+            <li>Make sure hardware acceleration is enabled in Chrome settings</li>
+            <li>Update your graphics drivers if Vulkan/D3D12 is disabled</li>
+          </ul>
+          <p><strong>Firefox on Linux:</strong></p>
+          <ul>
+            <li>Firefox does not support Vulkan on Linux. Too bad :(</li>
+            <li>Consider using Chrome for better WebGPU performance</li>
+          </ul>
+          <button id="vulkan-close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="canvas" width="1024" height="1024" style="background:black;display:block;margin:0 auto;cursor:crosshair;max-width:100%;"></canvas>
+    <p style="text-align:center;margin:6px 0 0;font-size:0.85rem;opacity:0.6;">
+      WASD to move, R/F up/down, arrow keys to look around, click to select a material
+    </p>
+
+    <div style="display:flex;justify-content:center;gap:24px;align-items:flex-start;margin-top:8px;flex-wrap:wrap;">
+      <label>
+        Model:
+        <select id="model-select">
+          <option value="Dragon (2k tri)">Dragon (2k tri)</option>
+          <option value="Dragon (117k tri)">Dragon (117k tri)</option>
+        </select>
+      </label>
+
+      <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="animate-checkbox" />
+        Light animation
+      </label>
+
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+        <label style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="raytraced-checkbox" />
+          Raytraced
+        </label>
+        <span style="color:red;font-size:0.75em;">at your own risk</span>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:140px;">
+        <label for="spp-input">SPP: <span id="spp-value">1</span></label>
+        <input type="range" id="spp-input" min="1" max="256" step="1" value="1" />
+      </div>
+    </div>
+
+    <br /><br />
+
+    <div id="bvh-section" style="max-width:400px;margin-bottom:16px;display:none;">
+      <h3>BVH Debug</h3>
+      <label for="bvh-depth-input">Depth: <span id="bvh-depth-value">0</span></label><br />
+      <input type="range" id="bvh-depth-input" min="0" max="0" step="1" value="0" style="width:100%;" />
+    </div>
+
+    <div id="material-section" style="max-width:400px;display:none;">
+      <h3>Material Editor — <span id="material-object-name"></span></h3>
+
+      <div style="margin-bottom:10px;">
+        <label for="material-color">Color</label><br />
+        <input type="color" id="material-color" style="margin-top:4px;width:48px;height:36px;padding:2px;border:2px solid #555;border-radius:4px;cursor:pointer;" />
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label for="roughness-input">Roughness: <span id="roughness-value">0.50</span></label><br />
+        <input type="range" id="roughness-input" min="0" max="1" step="0.01" value="0.5" style="width:100%;" />
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label for="metalness-input">Metalness: <span id="metalness-value">0.00</span></label><br />
+        <input type="range" id="metalness-input" min="0" max="1" step="0.01" value="0" style="width:100%;" />
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label for="perlin-freq-input">Perlin Freq: <span id="perlin-freq-value">0.0</span></label><br />
+        <input type="range" id="perlin-freq-input" min="0" max="100" step="0.5" value="0" style="width:100%;" />
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label for="perlin-amp-input">Perlin Amplitude: <span id="perlin-amp-value">0.00</span></label><br />
+        <input type="range" id="perlin-amp-input" min="0" max="1" step="0.01" value="0" style="width:100%;" />
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label for="perlin-octaves-input">Perlin Octaves: <span id="perlin-octaves-value">0</span></label><br />
+        <input type="range" id="perlin-octaves-input" min="0" max="16" step="1" value="0" style="width:100%;" />
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/assignment.ts"></script>
+</body>
+</html>

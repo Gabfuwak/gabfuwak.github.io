@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>404</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a> | <a href="/projects.html">Projects</a> | <a href="/experiments.html">Experiments</a>
+    <hr />
+  </nav>
+
+  <h1>404</h1>
+
+  <div id="no-webgpu" style="display:none;">
+    <p>You look lost. I would have loved to have fun with you, but WebGPU is not enabled :(</p>
+  </div>
+
+  <div id="webgpu-content" style="display:none;">
+    <p>You look lost. Here, have fun and write a shader.</p>
+
+    <canvas id="canvas" width="800" height="400" style="width:100%;height:400px;display:block;background:black;margin-bottom:1rem;"></canvas>
+
+    <pre id="shader-error" style="display:none;color:#d20f39;background:#e6e9ef;padding:0.75rem;font-size:0.85rem;margin-bottom:0.5rem;white-space:pre-wrap;border-radius:2px;border:1px solid #ccd0da;"></pre>
+
+    <div id="shader-editor"></div>
+  </div>
+
+  <script type="module" src="/not-found.ts"></script>
+</body>
+</html>
