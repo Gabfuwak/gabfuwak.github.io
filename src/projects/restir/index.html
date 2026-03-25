@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ReSTIR</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,700;1,400&display=swap">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="layout">
+    <div id="renderer-panel">
+      <canvas id="canvas" width="1024" height="1024"></canvas>
+      <div id="loading-overlay" style="display:none"></div>
+      <div id="stats"></div>
+      <div id="controls">
+        <div class="ctrl-toggle" id="controls-toggle">CONTROLS ▸</div>
+        <div id="controls-body">
+        <div class="ctrl-section">SCENE</div>
+        <label>scene:
+          <select id="scene-select">
+            <option value="cornell">Cornell box + dragon</option>
+            <option value="sponza">Sponza</option>
+          </select>
+        </label>
+
+        <div id="scene-cornell">
+          <label>dragon:
+            <select id="dragon-res">
+              <option value="2348">2k tris</option>
+              <option value="117452">117k tris</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="point-light" checked> point light</label>
+        </div>
+        <div id="scene-sponza" style="display:none">
+          <label>lights: <span id="light-count-val">100</span></label>
+          <input type="range" id="light-count" min="1" max="5000" value="100" step="1">
+          <button id="light-count-apply" style="font:11px monospace;margin-top:2px">apply</button>
+          <label>emission: <span id="light-emission-val">30.0</span></label>
+          <input type="range" id="light-emission" min="0.1" max="100" value="30" step="0.1">
+        </div>
+
+        <hr class="ctrl-sep">
+
+        <div class="ctrl-section">RENDERER</div>
+        <label><input type="checkbox" id="render-mode"> path tracer</label>
+        <div id="pt-controls">
+          <div class="ctrl-subsection">TECHNIQUE</div>
+          <label><input type="checkbox" id="nee-mode"> NEE</label>
+          <label><input type="checkbox" id="brdfis-mode"> BRDF IS</label>
+          <label><input type="checkbox" id="mis-mode"> MIS</label>
+          <label><input type="checkbox" id="ris-mode"> RIS</label>
+          <label><input type="checkbox" id="restir-mode"> ReSTIR (temporal)</label>
+          <label>RIS M: <span id="ris-samples-val">32</span></label>
+          <input type="range" id="ris-samples" min="0" max="1000" value="500" step="1">
+          <label>p̂:
+            <select id="ris-target">
+              <option value="0">full (with shadow)</option>
+              <option value="1">BRDF (no shadow)</option>
+              <option value="2" selected>geometric</option>
+            </select>
+          </label>
+        </div>
+        <label>SPP: <span id="spp-val">32</span></label>
+        <input type="range" id="spp-slider" min="0" max="1000" value="500" step="1">
+
+        <hr class="ctrl-sep">
+
+        <div class="ctrl-section">BVH DEBUG</div>
+        <label>depth: <span id="bvh-depth-val">off</span></label>
+        <input type="range" id="bvh-depth" min="-1" max="20" value="-1" step="1">
+        <label id="heat-label">threshold: <span id="bvh-heat-val">4</span></label>
+        <input type="range" id="bvh-heat" min="1" max="100" value="4" step="1">
+        <label><input type="checkbox" id="bvh-early-stop" checked> early stop</label>
+        </div>
+      </div>
+      <div id="controls-hint">WASD move · R/F up/down · arrows rotate</div>
+    </div>
+    <div id="report-panel">
+      <h1>ReSTIR - Interactive report</h1>
+      <h2>Introduction</h2>
+      <p>
+          In this interactive report, we will explore ReSTIR, a technique introduced by Bitterli et al. (2020) that enables blazing fast direct lighting with millions of lights in a single pass. ReSTIR is at the end of a chain of techniques, where each one solves a limitation of the previous. This report follows this chain. We will start at a basic ray tracer and progress through:
+      </p>
+      <ol>
+        <li> Monte carlo path tracing </li>
+        <li> Next event estimation (NEE) </li>
+        <li> BRDF Importance Sampling </li>
+        <li> Multiple Importance Sampling (MIS) </li>
+        <li> Resampled Importance Sampling (RIS) </li>
+        <li> Spatiotemporal reservoir resampling (ReSTIR) </li>
+      </ol>
+
+      <p>
+          Visualizations are interactive, don't hesitate to play around with them by moving the camera and light rays. On your left you can see a live view with a control panel. This will allow us to visualize the differences between each technique as we progress through the chain.
+      </p>
+
+
+      <h2>Basic ray tracing</h2>
+      <p>Here is our baseline. We start with this simple ray tracer. We have a point light on the top-right-near corner of the box. For each pixel, we cast a ray. When this ray hits a surface, we cast a shadow ray toward the light source. If it hits an object on the way, the contribution is 0, creating a shadow. Otherwise, the BRDF weighted by the cosine of the incident angle (<span class="formula-sm"><img src="/projects/restir/assets/formulas/f_r_cos.svg" alt="f_r cos theta"></span>) tells us how much incoming radiance from that direction contributes to the color we see. We have a Lambertian diffuse component and a GGX specular component, which together form our BRDF and determine the color response of the material.</p>
+
+      <p>Here you can see a simple ray tracer process, with the color response on the right. Depending on where the light ray falls on the distribution (plotted on a log scale, in green), we know how much incoming radiance from that direction contributes to what the camera sees. Depending on the properties of the material, our BRDF gives us the right color response.</p>
+
+      <div id="viz-raytracer"></div>
+      <p class="viz-caption">Direct lighting: one shadow ray per light, BRDF evaluated at the hit point.</p>
+
+      <p>This is the render you can see right now. We are using a point light, an emissive quad, and an ambient light (for debug purposes, to simulate indirect lighting). But there are issues with this approach. It does not handle area lights or soft shadows — our emissive quad is completely ignored. It also needs a new shadow ray for each light, and is not compatible with indirect lighting at all since the rays cannot currently "bounce". However, since ReSTIR is a paper about direct lighting, this will be a secondary concern.</p>
+
+      <h2>Naive path tracing</h2>
+
+      <p> Let's go back to the basics. What we are trying to solve is the rendering equation. We are solving this integral over a whole sphere, or in our case, a hemisphere <span class="formula-sm"><img src="/projects/restir/assets/formulas/omega.svg" alt="Omega"></span> centered around the normal <span class="formula-sm"><img src="/projects/restir/assets/formulas/n.svg" alt="n"></span>, since we are only dealing with opaque materials. Our first ray tracer was a very crude approximation of this integral. We only sample the directions towards the light and estimate the color output from only this. To actually make things properly we would need to actually integrate. However there is no closed form solution for the rendering equation. Our best bet is then Monte Carlo integration.</p>
+
+      <span class="formula-block"><img src="/projects/restir/assets/formulas/rendering_eq.svg" alt="Rendering equation"></span>
+
+      <p>There are a number of ways we could attack this problem. The one that survived the test of time and is now most commonly used in about all applications of rendering however, is path tracing. We literally simulate how rays move around the scene and accumulate throughput over time, just like a camera sensor would. Instead of calculating a simple angle with the light ray, we make our ray bounce, going around the scene randomly and accumulating throughput from the materials it touches. This allows us to now use area lights, as the rays touching an emissive material will gain in luminance, naturally creating soft shadows. At each surface hit we estimate the reflected radiance by integrating over the hemisphere: the naive strategy draws samples <em>uniformly</em> across all directions, then weights each sample by the BRDF value. We can then accumulate these to get our Monte Carlo integration.</p>
+
+      <div id="viz-naive"></div>
+      <p class="viz-caption">Uniform hemisphere sampling.</p>
+
+      <p>This is already much better. Now we can see a nice dragon, with soft shadows meaning that some rays hit the emissive quad. Well, that is if you can see it through all of the noise, which is our first issue. We can increase the number of samples per pixel to mitigate it, but it means we take longer to render. And our second issue is that we lost our point light in the process. A point is infinitely small, so no ray can ever hit it.</p>
+
+      <h2> Next Event Estimation </h2>
+
+      <p> The reason our render is noisy is because, as you can see in the visualization, most of our light samples don't ever hit a light, therefore contributing very little energy, only through indirect bounces. If we increase the number of rays, more of them hit lights and more throughput is accumulated. Next Event Estimation is a way of separating our problem. Instead of randomly shooting rays and wondering if light came from this direction, we can make use of the fact that we have information about our scene, and directly send rays towards lights. For point lights this is trivial, we can just copy our code from the initial ray tracer. For emissive triangles however, this is slightly more involved, as we need to keep track of all emissive triangles in our scene, and then sample randomly a position on these triangles to shoot a ray towards. This allows us to separate our direct lighting component, which is equivalent to our original ray tracer + area lights, and our indirect lighting which we use monte carlo integration for. We just need to exclude indirect rays hitting a light directly to avoid double counting.</p>
+
+      <div class="viz-row">
+        <div id="viz-nee-direct"></div>
+        <div class="viz-op">+</div>
+        <div id="viz-nee-indirect"></div>
+      </div>
+      <p class="viz-caption">NEE: direct light sampling (left) + indirect bounces excluding emissive hits (right).</p>
+
+      <p>In practice, we randomly choose a triangle or point light, weighted by light flux <span class="formula-sm"><img src="/projects/restir/assets/formulas/phi.svg" alt="Phi"></span> (which is related to area and emission strength for triangles, and simply intensity for point lights), and sample a new ray toward it. To do this we construct a CDF over all light sources. We compute the flux <span class="formula-sm"><img src="/projects/restir/assets/formulas/phi.svg" alt="Phi"></span> of every emissive object in the scene and accumulate their values into an array. For an emissive triangle, flux is:</p>
+      <span class="formula-block"><img src="/projects/restir/assets/formulas/flux_tri.svg" alt="Phi_tri = L_e * A_tri"></span>
+      <p>For a point light (isotropic, radiating equally in all directions over a full sphere):</p>
+      <span class="formula-block"><img src="/projects/restir/assets/formulas/flux_point.svg" alt="Phi_point = 4pi * I"></span>
+      <p>To sample, we draw a random number between 0 and the total flux. Each light source occupies a region of this range proportional to its flux, so brighter lights are picked more often. In our Cornell box scene with 2 emissive triangles and one point light, this looks like this:</p>
+
+
+      <div id="viz-nee-cdf"></div>
+
+      <p> Thanks to NEE, we now have a very good way to sample rays for direct lighting. This already helps a lot and now even with low samples per pixel, we have a clearly defined scene. However, there is still noise, and the reflections don't seem to converge, even with a lot of samples. </p>
+
+      <h2> BRDF Importance Sampling </h2>
+
+      <p> In the previous section, we separated our direct and indirect lighting components. NEE greatly accelerated the direct lighting part, now not relying on chance alone to hit lights. However, we did not handle the indirect lighting part at all. Right now what we are doing, is sampling uniformly in all directions, removing the direct lighting to avoid double counting, and weighting each light ray by the BRDF <span class="formula-sm"><img src="/projects/restir/assets/formulas/f_r.svg" alt="f_r"></span>. However, in many situations, <span class="formula-sm"><img src="/projects/restir/assets/formulas/f_r.svg" alt="f_r"></span> will be near 0, essentially rendering that sample useless to the final color output. To fix this, we can remember that BRDF means "Bidirectional Reflectance <b>Distribution Function</b>". We have been using it to weight our samples, but this is merely a trick. In reality it means that more light rays should be coming from some directions. This is directly translatable to our path tracer: instead of uniform hemisphere sampling, we can sample from the BRDF distribution itself — drawing directions from the GGX distribution for the specular component and cosine-weighted for the diffuse component.</p>
+
+      <div id="viz-brdfis"></div>
+      <p class="viz-caption">BRDF importance sampling: arrows cluster around the specular reflection direction.</p>
+
+      <p> Using the BRDF IS in isolation does not reduce the noise that much because our scene is mostly diffuse, but the reflections and specular highlights converge much faster, and are already much sharper. We can see instantly that the colors are more vibrant and that all of the indirect lighting is a lot more visible, even on low SPP.</p>
+
+      <h2> Multiple Importance Sampling </h2>
+
+      <p> However, when we use both NEE and the BRDF IS together, we can see that the result is still quite noisy. This is because right now, we are simply adding the two components together without any second thought. If we take the example of a mirror, our direct light rays will be sent randomly to a light, but the BRDF will instantly negate the effect, since a mirror is a perfect reflection.</p>
+
+      <div id="viz-mis-naive"></div>
+      <p class="viz-caption">NEE + BRDF IS without MIS: direct rays (yellow) and indirect BRDF samples (grey) are independent.</p>
+
+      <p> See this situation with a very low roughness metallic mirror. NEE sends light rays, but the narrow BRDF negates almost all of them unless they perfectly align with the reflection direction. Meanwhile, if the light is actually in the reflection, almost all BRDF IS samples should hit it. But to avoid double counting, we discard them, completely wasting all of the BRDF IS's work. Instead, we weight each sample (NEE or BRDF IS) by how likely it was under its own strategy <span class="formula-inline"><img src="/projects/restir/assets/formulas/p_i.svg" alt="p_i(x)"></span> relative to all strategies combined:</p>
+
+      <span class="formula-block"><img src="/projects/restir/assets/formulas/balance_heuristic.svg" alt="Balance heuristic: w_i(x) = p_i(x) / sum p_j(x)"></span>
+
+      <p> This is the balance heuristic, and is our last piece to complete Multiple Importance Sampling. You can see below how the heuristic behaves on a very smooth dielectric. If the rays in the specular bump hit the light, it becomes the best strategy. The weight of the rays is high, and if a NEE ray happened to be on the same place, its weight gets reduced. However, if the light is hit outside of the specular ray, the best strategy is NEE and the BRDF IS ray sees its weight greatly reduced.</p>
+
+      <div id="viz-mis-balanced"></div>
+      <p class="viz-caption">MIS with balance heuristic</p>
+
+      <p> On the render, we can see that, when activating BRDF IS and NEE, MIS has a good impact on how sharp the reflections are. The effect is especially noticeable with the ceiling light reflection on the back wall. MIS without BRDF IS however seems not to have that big of an impact. The most noticeable improvements are on the curvy spots of the dragon, where I assume even a cosine hemisphere sampling hit gets reflected onto the ceiling light.</p>
+
+      <p> Now, we have a pretty strong path tracer. This with a denoising pass is already enough for a lot of scenes. We handle mirrors, we could generalize to a BSDF to handle sub surface scattering and caustics. Even just a few samples per pixel give us a pretty good result that a modern denoiser would turn into a production ready render. But let us switch to the sponza scene. This has about as many triangles as the full resolution dragon scene, but we added 1000 light spheres, with a total of 35000 emissive triangles. Our NEE completely collapses. With just one light sample out of 35000 possibilities, an extremely important emissive triangle right next to our pixel would have a very low probability of being picked. This makes our render extremely noisy again, as NEE is basically useless now, and we're back to hoping for a random emissive triangle bounce.</p>
+
+      <h2> Resampled Importance Sampling </h2>
+      <p> Resampled Importance Sampling, or RIS, tries to solve this problem. A NEE light ray is quite expensive. We have to actually ray trace and traverse our BVH to test for a shadow. We'd like to only do this whole computation if we're sure the light has a good chance of being an interesting sample. The intuition behind RIS is that for each NEE sample, before computing the heavy shadow ray, if we could find a pretty good estimation of our target, we could know if a sample is better or worse than another sample. Such an estimation is actually trivial, and we need to go back to the initial ray tracing. Before even sending a shadow ray, we can simply evaluate the BRDF with a lot of light sources, sampling like we would normally using the flux heuristic. The unshadowed light response gives us a cheap target function:</p>
+      <span class="formula-block"><img src="/projects/restir/assets/formulas/p_hat_def.svg" alt="p_hat = L_e * f_r * cos * G"></span>
+      <p>Each candidate is then scored by comparing this target to the probability of having drawn it from the flux CDF:</p>
+      <span class="formula-block"><img src="/projects/restir/assets/formulas/ris_weight.svg" alt="w_i = p_hat(x_i) / p(x_i)"></span>
+      <p>After M candidates, we pick the one with the best potential and run the real shadow ray. With 1000 SPP and M=32, we go from 1000 light evaluations to 32000 with little performance overhead, and a small (but unbiased) variance cost compared to tracing all 32000 shadow rays.</p>
+
+      <p>But this target function could be any estimation as the framework is agnostic to the choice of <span class="formula-inline"><img src="/projects/restir/assets/formulas/p_hat.svg" alt="p hat"></span>. In the ReSTIR 2022 SIGGRAPH course, the first example actually includes the shadow ray in <span class="formula-inline"><img src="/projects/restir/assets/formulas/p_hat.svg" alt="p hat"></span>, giving a perfect estimate of the integrand. This yields the best sample efficiency, but each of the M candidates now costs a full shadow ray traversal, which defeats much of the purpose. A middle ground is to evaluate the full unshadowed integrand (BRDF, cosine, emission) without tracing, which is cheaper but still requires a BRDF call per candidate. In practice, I found that a simple geometric proxy based on the inverse-square law and cosine terms (without any BRDF evaluation) was significantly faster, and the quality tradeoff was acceptable. You can switch between all three modes in the control panel.</p>
+
+      <p> To decide which of our M lights will be our final sample, we use the reservoir data structure. A reservoir keeps the selected candidate, as well as the total weight accumulated so far (hence the "reservoir" naming). When we test against a new light, we can make it the new best candidate with a probability of:</p>
+        <span class="formula-block"><img src="/projects/restir/assets/formulas/reservoir_prob.svg" alt="P(select) = w_new / (w_sum + w_new)"></span>
+
+        <p> This keeps our estimator unbiased and at the end of the M samples evaluation the selected candidate has a high probability of having been one of the better-scoring lights.</p>
+
+        <div id="viz-ris-reservoir"></div>
+        <p class="viz-caption">Reservoir sampling process of RIS. Grid color represents luminance as estimated by <img src="/projects/restir/assets/formulas/p_hat.svg" alt="p hat" class="formula-inline" style="opacity:0.5">.</p>
+
+        <p> We have now greatly improved our shadow ray sample efficiency, and NEE now works better than random even with a lot of emissive triangles like in the sponza scene with emissive balls. However, even without the shadow rays, RIS still slows down computation a lot. Finding a way to get our estimate much faster is a real room for improvement.</p>
+
+      <h2> Spatiotemporal reservoir resampling (ReSTIR) </h2>
+        <p>The intuition behind ReSTIR is simple. At the end of reservoir sampling, our final candidate is a very good estimate of the integrand. But if we look at the path tracing process, we use more than one sample per pixel. Every time we draw a new sample, we reset our reservoir. If we simply keep the old value, we get a much better estimate for our final candidate. We can then run a new reservoir sampling with M draws, and an initial value corresponding to the previous final candidate. This is the <b>temporal</b> component of ReSTIR.</p>
+
+        <p>We can even go further. If in addition to the previous candidate, we also use the reservoir values for the neighboring pixels, there is a good chance that this is a pretty good estimation too. Except on object boundaries or hard shadows, two neighboring pixels are most likely lit by the same light sources. This is the <b>spatial</b> component of ReSTIR.</p>
+
+        <p> In practice, we use a 2nd accumulation buffer just like the one to accumulte path tracing light response. For the temporal component we simply add the previous value to our reservoir candidates. For the spatial component, we sample one of the 8 neighboring pixels and add it as a candidate. This allows us to greatly reduce M.</p>
+
+
+      <h2> Conclusion </h2>
+
+        <p>In the end, I did manage to implement every step except for the spatial component to ReSTIR. In my use cases, the temporal component only did not show a very big improvement over simply RIS. The difference between each step is very noticeable, each converging much faster and much cleaner than the last.</p>
+
+
+        <h2> References </h2>
+        <ol>
+          <li>E. Veach, <i>Optimally Combining Sampling Techniques for Monte Carlo Rendering</i>, Chapter 9 of PhD thesis, Stanford University, 1997. <a href="https://graphics.stanford.edu/courses/cs348b-03/papers/veach-chapter9.pdf">PDF</a></li>
+          <li>J. Cao, <i>Sampling Microfacet BRDF</i>, A Graphics Guy's Note. <a href="https://agraphicsguynotes.com/posts/sample_microfacet_brdf/">Link</a></li>
+          <li>ComputationallyBased, <i>The Algorithm That Makes Ray Tracing 10x Faster</i>, YouTube. <a href="https://www.youtube.com/watch?v=p772XkEnEIU">Video</a></li>
+          <li>C. Wyman, M. Kettunen, D. Lin, B. Bitterli, C. Yuksel, W. Jarosz, P. Kozlowski, G. De Francesco, <i>A Gentle Introduction to ReSTIR: Path Reuse in Real-time</i>, SIGGRAPH Course. <a href="https://intro-to-restir.cwyman.org/">Link</a></li>
+          <li>S. Lague, <i>Coding Adventure: More Ray Tracing!</i>, YouTube. <a href="https://www.youtube.com/watch?v=C1H4zIiCOaI">Video</a></li>
+          <li>Claude 4.6*</li>
+        </ol>
+
+        <p>*AI was used for this project in multiple ways:</p>
+        <ul>
+          <li>The naive raytracing implementation is an AI driven refactor of my initial assignment renderer code, which was in typescript + react, with explicit prompting to carry over even the bugs</li>
+          <li>As a tutor to make sense of concepts</li>
+          <li>For the UI and visualization, viz.ts and style.css being the only 100% AI generated files in this project (generated from my hand drawn doodles)</li>
+          <li>For bug finding/understanding</li>
+        </ul>
+
+    </div>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
