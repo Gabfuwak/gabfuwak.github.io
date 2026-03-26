@@ -25,15 +25,16 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
 
     // Direct lighting with shadow rays
     for (var i = 0u; i < u32(u.nb_lights); i++) {
-      let lightVec = u.lights[i].position - sp.world_pos;
-      let lightDir = normalize(lightVec);
+      let lightVec   = u.lights[i].position - sp.world_pos;
+      let light_dist = length(lightVec);
+      let lightDir   = lightVec / light_dist;
 
       var shadow_ray: Ray;
       shadow_ray.origin    = sp.world_pos + sp.normal * 0.1;
       shadow_ray.direction = lightDir;
 
       var shadow_hit: Hit;
-      if (!rayTrace(shadow_ray, &shadow_hit, true, length(lightVec))) {
+      if (!rayTrace(shadow_ray, &shadow_hit, true, light_dist)) {
         color += evaluateRadiance(u.lights[i], sp.world_pos, sp.normal, viewDir, sp.material);
       }
     }

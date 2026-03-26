@@ -155,18 +155,18 @@ fn evaluateBRDF(mat: Material, normal: vec3f, viewDir: vec3f, lightDir: vec3f) -
 fn evaluateRadiance(
   light: PointLight,
   worldPos: vec3f,
-  normal_in: vec3f,
+  normal: vec3f,
   viewDir: vec3f,
   material: Material
 ) -> vec3f {
-  let normal = normalize(normal_in);
-  let lightVec = light.position - worldPos;
-  let lightDir = normalize(lightVec);
+  let lightVec   = light.position - worldPos;
+  let light_dist = length(lightVec);
+  let lightDir   = lightVec / light_dist;
   let lightToPoint = -lightDir;
-  let inCone = dot(normalize(light.direction), lightToPoint) >= cos(light.angle / 2.0);
+  let inCone = dot(light.direction, lightToPoint) >= cos(light.angle / 2.0);
   if (!inCone) { return vec3f(0.0); }
 
-  let lightDistance = length(lightVec) / 1000.0;
+  let lightDistance = light_dist / 1000.0;
   let attenuationFactor = 1.0 / max(lightDistance * lightDistance, 0.0001);
   let lambertFactor = max(0.0, dot(lightDir, normal));
 
@@ -485,9 +485,9 @@ fn sampleSemiSphere(n: vec3f, seed: f32) -> vec3f {
   let tangent   = normalize(cross(up, n));
   let bitangent = cross(n, tangent);
 
-  return normalize(sin_theta * cos(phi) * tangent
-                 + sin_theta * sin(phi) * bitangent
-                 + cos_theta            * n);
+  return sin_theta * cos(phi) * tangent
+       + sin_theta * sin(phi) * bitangent
+       + cos_theta            * n;
 }
 
 // ============================================================================
@@ -534,9 +534,9 @@ fn sampleGGXHalfVector(normal: vec3f, roughness: f32, seed: u32) -> vec3f {
   let tangent   = normalize(cross(up, normal));
   let bitangent = cross(normal, tangent);
 
-  return normalize(sin_theta * cos(phi) * tangent
-                 + sin_theta * sin(phi) * bitangent
-                 + cos_theta            * normal);
+  return sin_theta * cos(phi) * tangent
+       + sin_theta * sin(phi) * bitangent
+       + cos_theta            * normal;
 }
 
 // ============================================================================

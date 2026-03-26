@@ -12,14 +12,15 @@ fn neePointLight(sp: SurfacePoint, viewDir: vec3f,
     cum += point_flux[i];
     if (u_draw < cum) { chosen = i; break; }
   }
-  let light    = u.lights[chosen];
-  let lightVec = light.position - sp.world_pos;
-  let lightDir = normalize(lightVec);
+  let light      = u.lights[chosen];
+  let lightVec   = light.position - sp.world_pos;
+  let light_dist = length(lightVec);
+  let lightDir   = lightVec / light_dist;
   var shadow_ray: Ray;
   shadow_ray.origin    = sp.world_pos + sp.normal * 0.001;
   shadow_ray.direction = lightDir;
   var shadow_hit: Hit;
-  if (!rayTrace(shadow_ray, &shadow_hit, true, length(lightVec))) {
+  if (!rayTrace(shadow_ray, &shadow_hit, true, light_dist)) {
     return evaluateRadiance(light, sp.world_pos, sp.normal, viewDir, sp.material)
            * total_flux / point_flux[chosen];
   }
@@ -31,8 +32,9 @@ fn neeEmissiveTriangle(sp: SurfacePoint, viewDir: vec3f,
                        total_flux: f32, use_mis: bool) -> vec3f {
   let ls          = sampleEmissiveTriangle(u_emissive, u1, u2);
   let lightVec    = ls.position - sp.world_pos;
-  let lightDir    = normalize(lightVec);
-  let dist_m      = length(lightVec) / 1000.0; // mm -> m
+  let light_dist  = length(lightVec);
+  let lightDir    = lightVec/light_dist;
+  let dist_m      = light_dist / 1000.0; // mm -> m
   let cos_light   = max(0.0, dot(ls.normal, -lightDir));
   let cos_surface = max(0.0, dot(sp.normal, lightDir));
   if (cos_light <= 0.0 || cos_surface <= 0.0) { return vec3f(0.0); }
@@ -41,7 +43,7 @@ fn neeEmissiveTriangle(sp: SurfacePoint, viewDir: vec3f,
   shadow_ray.origin    = sp.world_pos + sp.normal * 0.001;
   shadow_ray.direction = lightDir;
   var shadow_hit: Hit;
-  if (!rayTrace(shadow_ray, &shadow_hit, true, length(lightVec) - 0.5)) {
+  if (!rayTrace(shadow_ray, &shadow_hit, true, light_dist - 0.5)) {
     let brdf      = evaluateBRDF(sp.material, sp.normal, viewDir, lightDir);
     let pdf_light = neePdf(ls.emission, total_flux, dist_m, cos_light);
     var w = 1.0;
@@ -139,8 +141,9 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
 
           let ls = sampleEmissiveTriangle(cand_u_draw, 0.5, 0.5); // centroid, not really principled but it's a decent estimation and makes restir easier because less data to carry over
           let lightVec = ls.position - sp.world_pos;
-          let lightDir = normalize(lightVec);
-          let dist_m = length(lightVec) / 1000.0;
+          let light_dist = length(lightVec);
+          let lightDir = lightVec / light_dist;
+          let dist_m = light_dist / 1000.0;
           let cos_light = max(0.0, dot(ls.normal, -lightDir));
           let cos_surface = max(0.0, dot(sp.normal, lightDir));
 
@@ -156,7 +159,7 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
               shadow_ray.origin = sp.world_pos + sp.normal * 0.001;
               shadow_ray.direction = lightDir;
               var shadow_hit: Hit;
-              let visible = !rayTrace(shadow_ray, &shadow_hit, true, length(lightVec) - 0.5);
+              let visible = !rayTrace(shadow_ray, &shadow_hit, true, light_dist - 0.5);
               if (visible) {
                 p_hat = dot(brdf * cos_surface * ls.emission, vec3f(0.333));
               }
@@ -198,7 +201,8 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
           let u2 = f32(s2) / f32(0xFFFFFFFFu);
           let ls = sampleEmissiveTriangle(res_u_draw, u1, u2);
           let lightVec = ls.position - sp.world_pos;
-          let lightDir = normalize(lightVec);
+          let light_dist = length(lightVec);
+          let lightDir = lightVec / light_dist;
           let cos_surface = max(0.0, dot(sp.normal, lightDir));
           let cos_light = max(0.0, dot(ls.normal, -lightDir));
           if (cos_surface > 0.0 && cos_light > 0.0) {
@@ -206,7 +210,7 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
             shadow_ray.origin = sp.world_pos + sp.normal * 0.001;
             shadow_ray.direction = lightDir;
             var shadow_hit: Hit;
-            if (!rayTrace(shadow_ray, &shadow_hit, true, length(lightVec) - 0.5)) {
+            if (!rayTrace(shadow_ray, &shadow_hit, true, light_dist - 0.5)) {
               let brdf = evaluateBRDF(sp.material, sp.normal, viewDir, lightDir);
               let f = brdf * cos_surface * ls.emission;
               let ris_M = select(f32(M), total_M, use_restir);
