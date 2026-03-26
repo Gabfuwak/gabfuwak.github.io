@@ -131,9 +131,8 @@ fn smith_geometric(material: Material, normal: vec3f, viewDir: vec3f, lightDir: 
   return G_1_schlick_approx(viewDir, normal, k) * G_1_schlick_approx(lightDir, normal, k);
 }
 
-fn microfacet_BRDF(material: Material, normal: vec3f, viewDir: vec3f, lightDir: vec3f, halfVector: vec3f) -> vec3f {
+fn microfacet_BRDF(material: Material, normal: vec3f, viewDir: vec3f, lightDir: vec3f, halfVector: vec3f, f: vec3f) -> vec3f {
   let d = GGX_distribution(material, halfVector, normal);
-  let f = schlick_fresnel(material, viewDir, halfVector);
   let g = smith_geometric(material, normal, viewDir, lightDir);
 
   let numerator = d * f * g;
@@ -148,7 +147,7 @@ fn evaluateBRDF(mat: Material, normal: vec3f, viewDir: vec3f, lightDir: vec3f) -
   let halfVec = normalize(viewDir + lightDir);
   let F = schlick_fresnel(mat, viewDir, halfVec);
   let kD = (1.0 - mat.metalness) * (vec3f(1.0) - F);
-  let f_spec = microfacet_BRDF(mat, normal, viewDir, lightDir, halfVec);
+  let f_spec = microfacet_BRDF(mat, normal, viewDir, lightDir, halfVec, F);
   return kD * mat.baseColor / 3.14159265359 + f_spec;
 }
 
@@ -214,12 +213,12 @@ fn ray_at(screen_coord: vec2f) -> Ray {
   return ray;
 }
 
-fn rayBoxHit(ray: Ray, box: BVHNode) -> f32 {
+fn rayBoxHit(ray: Ray, inv_dir: vec3f, box: BVHNode) -> f32 {
   var tmin = 0.0f;
   var tmax = 1e30;
   for (var i = 0; i < 3; i++) {
-    let t1 = (box.minCorner[i] - ray.origin[i]) / ray.direction[i];
-    let t2 = (box.maxCorner[i] - ray.origin[i]) / ray.direction[i];
+    let t1 = (box.minCorner[i] - ray.origin[i]) * inv_dir[i];
+    let t2 = (box.maxCorner[i] - ray.origin[i]) * inv_dir[i];
     tmin = max(tmin, min(t1, t2));
     tmax = min(tmax, max(t1, t2));
   }
@@ -271,11 +270,12 @@ fn traceBLAS(
   var stack: array<u32, 64>;
   var sp: i32 = 1;
   stack[0] = inst.blasOffset;
+  let inv_dir = 1.0 / lr.direction;
 
   while (sp > 0) {
     sp -= 1;
     let bn = stack[sp];
-    if (rayBoxHit(lr, blases[bn]) >= *closest_t) { continue; }
+    if (rayBoxHit(lr, inv_dir, blases[bn]) >= *closest_t) { continue; }
 
     if (blases[bn].isLeafOrTriNb != 0u) {
       for (var i = 0u; i < blases[bn].isLeafOrTriNb; i++) {
@@ -294,8 +294,8 @@ fn traceBLAS(
     } else {
       let right = inst.blasOffset + blases[bn].triangleOrChildIdx;
       let left  = bn + 1u;
-      let r_t = rayBoxHit(lr, blases[right]);
-      let l_t = rayBoxHit(lr, blases[left]);
+      let r_t = rayBoxHit(lr, inv_dir, blases[right]);
+      let l_t = rayBoxHit(lr, inv_dir, blases[left]);
       if (l_t < r_t) {
         if (r_t < *closest_t) { stack[sp] = right; sp += 1; }
         if (l_t < *closest_t) { stack[sp] = left;  sp += 1; }
@@ -312,6 +312,7 @@ fn traceBLAS(
 fn rayTrace(ray: Ray, hit: ptr<function, Hit>, is_shadow: bool, max_t: f32) -> bool {
   var closest_t = max_t;
   var found_hit = false;
+  let inv_dir = 1.0 / ray.direction;
 
   var tlas_stack: array<u32, 16>;
   var tlas_sp: i32 = 1;
@@ -320,7 +321,7 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>, is_shadow: bool, max_t: f32) -> b
   while (tlas_sp > 0) {
     tlas_sp -= 1;
     let tn = tlas_stack[tlas_sp];
-    if (rayBoxHit(ray, tlas[tn]) >= closest_t) { continue; }
+    if (rayBoxHit(ray, inv_dir, tlas[tn]) >= closest_t) { continue; }
 
     if (tlas[tn].isLeafOrTriNb != 0u) {
       let inst_idx = tlas[tn].triangleOrChildIdx;
@@ -337,8 +338,8 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>, is_shadow: bool, max_t: f32) -> b
     } else {
       let right = tlas[tn].triangleOrChildIdx;
       let left  = tn + 1u;
-      let r_t = rayBoxHit(ray, tlas[right]);
-      let l_t = rayBoxHit(ray, tlas[left]);
+      let r_t = rayBoxHit(ray, inv_dir, tlas[right]);
+      let l_t = rayBoxHit(ray, inv_dir, tlas[left]);
       if (l_t < r_t) {
         if (r_t < closest_t) { tlas_stack[tlas_sp] = right; tlas_sp += 1; }
         if (l_t < closest_t) { tlas_stack[tlas_sp] = left;  tlas_sp += 1; }
@@ -388,13 +389,14 @@ fn blasHeat(lr: Ray, inst: Instance, target_depth: i32, base_depth: i32, max_t: 
   var sd: array<i32, 32>;
   sn[0] = inst.blasOffset; sd[0] = base_depth;
   var sp: i32 = 1;
+  let inv_dir = 1.0 / lr.direction;
 
   while (sp > 0) {
     sp -= 1;
     let bn  = sn[sp];
     let dep = sd[sp];
 
-    if (rayBoxHit(lr, blases[bn]) >= max_t) { continue; }
+    if (rayBoxHit(lr, inv_dir, blases[bn]) >= max_t) { continue; }
     if (dep == target_depth || blases[bn].isLeafOrTriNb != 0u) {
       count += 1;
       continue;
@@ -412,6 +414,7 @@ fn blasHeat(lr: Ray, inst: Instance, target_depth: i32, base_depth: i32, max_t: 
 fn bvhHeat(ray: Ray, max_t: f32) -> f32 {
   let target_depth = i32(u.bvh_vis_depth);
   var hit_count = 0;
+  let inv_dir = 1.0 / ray.direction;
 
   var tlas_sn: array<u32, 32>;
   var tlas_sd: array<i32, 32>;
@@ -423,7 +426,7 @@ fn bvhHeat(ray: Ray, max_t: f32) -> f32 {
     let tn  = tlas_sn[tsp];
     let dep = tlas_sd[tsp];
 
-    if (rayBoxHit(ray, tlas[tn]) >= max_t) { continue; }
+    if (rayBoxHit(ray, inv_dir, tlas[tn]) >= max_t) { continue; }
     if (dep == target_depth) { hit_count += 1; continue; }
 
     if (tlas[tn].isLeafOrTriNb != 0u) {
