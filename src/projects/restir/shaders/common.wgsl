@@ -313,7 +313,7 @@ fn rayTrace(ray: Ray, hit: ptr<function, Hit>, is_shadow: bool, max_t: f32) -> b
   var closest_t = max_t;
   var found_hit = false;
 
-  var tlas_stack: array<u32, 32>;
+  var tlas_stack: array<u32, 16>;
   var tlas_sp: i32 = 1;
   tlas_stack[0] = 0u;
 
@@ -384,8 +384,8 @@ fn resolve_hit(hit: Hit) -> SurfacePoint {
 
 fn blasHeat(lr: Ray, inst: Instance, target_depth: i32, base_depth: i32, max_t: f32) -> i32 {
   var count = 0;
-  var sn: array<u32, 64>;
-  var sd: array<i32, 64>;
+  var sn: array<u32, 32>;
+  var sd: array<i32, 32>;
   sn[0] = inst.blasOffset; sd[0] = base_depth;
   var sp: i32 = 1;
 
