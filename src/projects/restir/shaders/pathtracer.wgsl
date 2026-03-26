@@ -259,7 +259,10 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
 
     // Russian roulette
     let rr_seed = pcg_hash(seed_u ^ 0xDEADBEEFu);
-    if (all(throughput < vec3f(f32(rr_seed) / f32(0xFFFFFFFFu)))) { break; }
+    let rr_val = f32(rr_seed) / f32(0xFFFFFFFFu);
+    let q = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 1.0);
+    if (rr_val > q) { break; }
+    throughput /= q;
   }
 
   // Touch unused bindings so auto layout keeps them alive
