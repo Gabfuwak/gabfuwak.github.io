@@ -64,6 +64,24 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
   var throughput = vec3f(1.0);
   var prev_pdf = 0.0;
 
+  let use_nee    = (u32(u.render_mode) & 1u) != 0u;
+  let use_brdfis = (u32(u.render_mode) & 2u) != 0u;
+  let use_mis    = (u32(u.render_mode) & 4u) != 0u;
+
+
+  // Precompute flux totals (needed by both MIS emission weighting and NEE sampling)
+  let n_emissive = u32(u.emissive_count);
+  let n_point    = u32(u.nb_lights);
+  var point_flux: array<f32, 4>;
+  var point_flux_total = 0.0;
+  for (var i = 0u; i < n_point; i++) {
+    point_flux[i]     = 4.0 * 3.14159265359 * u.lights[i].intensity;
+    point_flux_total += point_flux[i];
+  }
+  let emissive_flux_total = select(0.0, emissive_tris[n_emissive - 1u].cdf, n_emissive > 0u);
+  let total_flux = point_flux_total + emissive_flux_total;
+
+
   for (var bounce = 0u; bounce <= 32u; bounce++) { // cap at 32 in case we have a degenerate case, RR should rarely make it bounce more than 3-5 times
     var hit: Hit;
     if (!rayTrace(ray, &hit, false, 1e30)) {
@@ -76,21 +94,7 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3u) {
     let sp = resolve_hit(hit);
     let viewDir = -ray.direction;
 
-    let use_nee    = (u32(u.render_mode) & 1u) != 0u;
-    let use_brdfis = (u32(u.render_mode) & 2u) != 0u;
-    let use_mis    = (u32(u.render_mode) & 4u) != 0u;
 
-    // Precompute flux totals (needed by both MIS emission weighting and NEE sampling)
-    let n_emissive = u32(u.emissive_count);
-    let n_point    = u32(u.nb_lights);
-    var point_flux: array<f32, 4>;
-    var point_flux_total = 0.0;
-    for (var i = 0u; i < n_point; i++) {
-      point_flux[i]     = 4.0 * 3.14159265359 * u.lights[i].intensity;
-      point_flux_total += point_flux[i];
-    }
-    let emissive_flux_total = select(0.0, emissive_tris[n_emissive - 1u].cdf, n_emissive > 0u);
-    let total_flux = point_flux_total + emissive_flux_total;
 
     // Naive: add emission every bounce. NEE: only bounce 0 (NEE handles the rest).
     // MIS: weight BRDF-sampled emissive hits by balance heuristic on bounce > 0.
