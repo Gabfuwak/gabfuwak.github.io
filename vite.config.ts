@@ -17,6 +17,7 @@ export default defineConfig({
         secretAssignment: resolve(__dirname, 'src/secret/assignment.html'),
         secretPlayground: resolve(__dirname, 'src/secret/playground.html'),
       restir: resolve(__dirname, 'src/projects/restir/index.html'),
+      deriveeLesson: resolve(__dirname, 'src/lessons/derivee/index.html'),
       },
     },
   },

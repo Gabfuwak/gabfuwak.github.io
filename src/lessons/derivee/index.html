@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nombre dérivé</title>
+  <link rel="stylesheet" href="../../style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '$', right: '$', display: false}
+      ]
+    })"></script>
+  <style>
+    .callout {
+      border: 1px solid #ccc;
+      padding: 1rem 1.25rem;
+      margin: 1.5rem 0;
+      background: #fafafa;
+    }
+
+    .callout-title {
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+    }
+
+    .callout.retenir {
+      border-left: 3px solid #0066cc;
+      background: #f0f6ff;
+    }
+
+    .correction {
+      border-left: 3px solid #2a9d4e;
+      background: #f2faf5;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+    }
+
+    .correction-title {
+      font-weight: bold;
+      color: #2a9d4e;
+      margin-bottom: 0.5rem;
+    }
+
+    .feedback-wrong {
+      color: #c0392b;
+      margin-top: 0.5rem;
+      font-style: italic;
+    }
+
+    .graph-placeholder {
+      width: 100%;
+      height: 200px;
+      border: 1px dashed #ccc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #999;
+      margin: 1.5rem 0;
+      font-size: 0.9rem;
+    }
+
+    .step {
+      margin-top: 2rem;
+    }
+
+    .step[hidden] {
+      display: none;
+    }
+
+    .question-label {
+      font-weight: bold;
+    }
+
+    .num-input {
+      display: inline-block;
+      width: 9rem;
+      margin-top: 0.75rem;
+      padding: 0.4rem 0.6rem;
+      font-family: inherit;
+      font-size: inherit;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      text-align: center;
+    }
+
+    .num-input:focus {
+      outline: none;
+      border-color: #0066cc;
+    }
+
+    .num-inputs-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.5rem;
+      margin-top: 0.75rem;
+      align-items: center;
+    }
+
+    .num-inputs-row label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .btn-row {
+      margin-top: 0.75rem;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .btn-passer {
+      margin-left: auto;
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.8rem;
+      color: #bbb;
+      cursor: pointer;
+    }
+
+    .btn-passer:hover {
+      color: #888;
+      background: none;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 0.5rem 0.75rem;
+      text-align: center;
+    }
+
+    th {
+      background: #f0f0f0;
+    }
+
+    td input[type="number"] {
+      width: 130px;
+      padding: 0.2rem 0.4rem;
+      font-family: inherit;
+      font-size: inherit;
+      border: none;
+      border-bottom: 1px solid #aaa;
+      text-align: center;
+      background: transparent;
+      transition: background 0.15s, border-color 0.15s;
+      -moz-appearance: textfield;
+    }
+
+    td input[type="number"]::-webkit-inner-spin-button,
+    td input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+    }
+
+    td input[type="number"]:focus {
+      outline: none;
+      border-bottom-color: #0066cc;
+    }
+
+    .h-controls {
+      margin: 0.5rem auto 1rem;
+      max-width: 360px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .h-display {
+      text-align: center;
+      font-size: 0.95rem;
+      color: #e67e22;
+      font-weight: 600;
+      font-family: system-ui, sans-serif;
+    }
+
+    .h-slider-input {
+      width: 100%;
+      accent-color: #e67e22;
+      cursor: pointer;
+    }
+
+    td input.wrong {
+      background: #fdecec;
+      border-bottom-color: #c0392b;
+    }
+
+    td input.ok {
+      background: #ecfae5;
+      border-bottom-color: #2a9d4e;
+    }
+
+    .num-input.wrong {
+      border-color: #c0392b;
+      background: #fdecec;
+    }
+
+    nav.lesson-nav {
+      border-bottom: 1px solid #e0e0e0;
+      padding: 0.6rem 0 0.5rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      gap: 0;
+    }
+
+    nav.lesson-nav a {
+      padding: 0.3rem 1rem;
+      font-size: 0.85rem;
+      text-decoration: none;
+      color: #888;
+      border-right: 1px solid #e0e0e0;
+    }
+
+    nav.lesson-nav a:first-child {
+      border-left: 1px solid #e0e0e0;
+    }
+
+    nav.lesson-nav a.active {
+      color: #0066cc;
+      font-weight: 600;
+    }
+
+    nav.lesson-nav a.upcoming {
+      color: #bbb;
+      cursor: default;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="lesson-nav">
+    <a href="#" class="active">I. Le nombre dérivé</a>
+    <a class="upcoming">II. Les fonctions dérivées (à venir)</a>
+    <a class="upcoming">III. La descente de gradient 1D (à venir)</a>
+  </nav>
+
+  <!-- ── Step 0 : intro + fonction affine ─────────────────────── -->
+  <div class="step" data-step="0">
+    <h1>Nombre dérivé</h1>
+    <h2>1. Vitesse instantanée</h2>
+
+    <p>
+      Un robot se déplace en ligne droite. La fonction $f(x)$ donne sa position en mètres
+      en fonction du temps $x$ en secondes. Pour l'instant, le robot roule à vitesse
+      constante : $f(x) = 0{,}5\,x + 1$.
+    </p>
+
+    <div id="graph-affine" class="plot"></div>
+
+    <div class="callout">
+      <div class="callout-title">Rappel de physique</div>
+      <p>
+        La vitesse est le quotient de la distance sur le temps. Pour calculer la vitesse
+        moyenne entre deux points on peut donc juste diviser la différence de distance
+        sur la différence de temps :
+      </p>
+      $$\text{vitesse moyenne} = \frac{f(x_2) - f(x_1)}{x_2 - x_1}$$
+    </div>
+
+    <div class="btn-row">
+      <button onclick="advance(this, 0)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 1 : Question 1 ───────────────────────────────────── -->
+  <div class="step" data-step="1" hidden>
+    <p>
+      <span class="question-label">Question 1 :</span>
+      Calcule la vitesse du robot entre $t_1 = 1$ et $t_2 = 3$.
+    </p>
+    <input type="number" step="any" class="num-input" placeholder="?" />
+
+    <div class="feedback-wrong" hidden></div>
+
+    <div class="correction" hidden>
+      <div class="correction-title">✓ Bien joué !</div>
+      $$\frac{f(3) - f(1)}{3 - 1} = \frac{(0{,}5 \times 3 + 1) - (0{,}5 \times 1 + 1)}{2} = \frac{2{,}5 - 1{,}5}{2} = \frac{1}{2} = 0{,}5 \text{ m/s}$$
+      <p>
+        Le taux d'accroissement vaut $0{,}5$, ce qui est bien le coefficient directeur
+        de $f(x) = 0{,}5\,x + 1$.
+      </p>
+    </div>
+
+    <div class="btn-row">
+      <button onclick="validate(this)">Valider</button>
+      <button class="btn-passer" onclick="skipStep(this)">passer →</button>
+      <button hidden onclick="advance(this, 1)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 2 : taux d'accroissement + fonction x² ───────────── -->
+  <div class="step" data-step="2" hidden>
+    <p>
+      Tu l'as peut-être manqué, mais il y avait une façon de tricher. Comme le robot suit
+      une fonction affine, la vitesse est constante. Peu importe les points $x_1$ et $x_2$
+      choisis, on trouvera toujours la pente (ou coefficient directeur) de la fonction.
+    </p>
+    <p>
+      Si on veut être un peu plus général, ce qu'on appelle ici « vitesse », c'est en fait
+      le <strong>taux d'accroissement</strong> de la fonction (à quelle vitesse elle grandit).
+      Si on parle d'autres grandeurs que la distance et le temps, on ne pourra plus parler
+      de vitesse, mais le taux d'accroissement est général.
+    </p>
+
+    <hr />
+
+    <p>
+      On change maintenant l'algorithme de contrôle du robot pour le rendre plus efficace :
+      il accélère pendant le mouvement. Sa position est maintenant donnée par $f(x) = x^2$.
+    </p>
+
+    <div id="graph-parabole" class="plot"></div>
+
+    <div class="btn-row">
+      <button onclick="advance(this, 2)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 3 : Question 2 ───────────────────────────────────── -->
+  <div class="step" data-step="3" hidden>
+    <p>
+      <span class="question-label">Question 2 :</span>
+      Calcule la vitesse moyenne du robot entre $t_1 = 0$ et $t_2 = 3$.
+      Puis recommence entre $t_1 = 1$ et $t_2 = 3$. Obtiens-tu le même résultat qu'avant ?
+    </p>
+    <div class="num-inputs-row">
+      <label>Entre $t_1=0$ et $t_2=3$ : <input type="number" step="any" class="num-input" data-expect="3" placeholder="?" /></label>
+      <label>Entre $t_1=1$ et $t_2=3$ : <input type="number" step="any" class="num-input" data-expect="4" placeholder="?" /></label>
+    </div>
+
+    <div class="feedback-wrong" hidden></div>
+
+    <div class="correction" hidden>
+      <div class="correction-title">✓ Bien joué !</div>
+      <p>Entre $t_1 = 0$ et $t_2 = 3$ :</p>
+      $$\frac{f(3) - f(0)}{3 - 0} = \frac{9 - 0}{3} = 3 \text{ m/s}$$
+      <p>Entre $t_1 = 1$ et $t_2 = 3$ :</p>
+      $$\frac{f(3) - f(1)}{3 - 1} = \frac{9 - 1}{2} = \frac{8}{2} = 4 \text{ m/s}$$
+      <p>
+        On n'obtient pas le même résultat. Contrairement à la fonction affine,
+        le taux d'accroissement dépend des points choisis.
+      </p>
+    </div>
+
+    <div class="btn-row">
+      <button onclick="validate(this)">Valider</button>
+      <button class="btn-passer" onclick="skipStep(this)">passer →</button>
+      <button hidden onclick="advance(this, 3)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 4 : interprétation graphique (sécante) ───────────── -->
+  <div class="step" data-step="4" hidden>
+    <h3>Interprétation graphique</h3>
+    <p>
+      Calculer la vitesse moyenne entre deux points, c'est tracer la droite qui relie
+      ces deux points (on l'appelle la <strong>sécante</strong>) et calculer sa pente.
+    </p>
+
+    <div id="graph-secante-affine" class="plot"></div>
+
+    <p>
+      Quand la fonction est affine, tous ses points sont déjà alignés : peu importe les
+      deux points choisis, la sécante se superpose à la courbe. Sa pente est toujours la
+      même (d'où la vitesse constante qu'on a vue en Question 1).
+    </p>
+
+    <div id="graph-secante-parabole" class="plot"></div>
+
+    <p>
+      Pour $f(x) = x^2$ par contre, les points ne sont plus alignés. Selon les deux
+      points choisis, la sécante change d'inclinaison, et la vitesse moyenne change avec
+      elle. C'est exactement ce qu'on vient d'observer : $3$ m/s sur $[0\,;\,3]$, mais
+      $4$ m/s sur $[1\,;\,3]$.
+    </p>
+
+    <div class="btn-row">
+      <button onclick="advance(this, 4)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 5 : intro vitesse instantanée + formule avec h ───── -->
+  <div class="step" data-step="5" hidden>
+    <p>
+      On aimerait maintenant connaître la vitesse <strong>exacte</strong> du robot à
+      l'instant $t = 1$, pas une moyenne. Difficile de répondre directement… mais on
+      peut commencer par des estimations de plus en plus précises.
+    </p>
+    <p>
+      Pour ce faire, on va changer un peu notre formule. On sait que notre point $x_1$
+      sera toujours $1$, puisque c'est celui qu'on cherche à estimer. On va ensuite
+      poser $h$, la distance entre notre point $x_1$ et notre point $x_2$.
+      Cela nous donne $x_2 = 1 + h$.
+    </p>
+    <p>En simplifiant, on a :</p>
+    $$\text{taux d'accroissement} = \frac{f(1+h) - f(1)}{(1+h) - 1} = \frac{f(1+h) - f(1)}{h}$$
+
+    <div class="btn-row">
+      <button onclick="advance(this, 5)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 6 : Question 3 (tableau) ────────────────────────── -->
+  <div class="step" data-step="6" hidden>
+    <p>
+      <span class="question-label">Question 3 :</span>
+      Complète le tableau suivant (attention, pas d'arrondis ! Utilise ta calculatrice) :
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>$h$</th>
+          <th>$f(1+h)$</th>
+          <th>Taux d'accroissement</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>$1$</td>
+          <td><input type="number" step="any" data-expect="4" aria-label="f(2)" /></td>
+          <td><input type="number" step="any" data-expect="3" aria-label="taux h=1" /></td>
+        </tr>
+        <tr>
+          <td>$0{,}1$</td>
+          <td><input type="number" step="any" data-expect="1.21" aria-label="f(1.1)" /></td>
+          <td><input type="number" step="any" data-expect="2.1" aria-label="taux h=0.1" /></td>
+        </tr>
+        <tr>
+          <td>$0{,}01$</td>
+          <td><input type="number" step="any" data-expect="1.0201" aria-label="f(1.01)" /></td>
+          <td><input type="number" step="any" data-expect="2.01" aria-label="taux h=0.01" /></td>
+        </tr>
+        <tr>
+          <td>$0{,}001$</td>
+          <td><input type="number" step="any" data-expect="1.002001" aria-label="f(1.001)" /></td>
+          <td><input type="number" step="any" data-expect="2.001" aria-label="taux h=0.001" /></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Vers quelle valeur semble tendre le taux d'accroissement quand $h$ se rapproche de $0$ ?</p>
+    <input type="number" step="any" class="num-input" placeholder="?" />
+
+    <div class="feedback-wrong" hidden></div>
+
+    <div class="correction" hidden>
+      <div class="correction-title">✓ Bien joué !</div>
+      <table>
+        <thead>
+          <tr>
+            <th>$h$</th>
+            <th>$f(1+h)$</th>
+            <th>Taux d'accroissement</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>$1$</td>
+            <td>$f(2) = 4$</td>
+            <td>$\dfrac{4-1}{1} = 3$</td>
+          </tr>
+          <tr>
+            <td>$0{,}1$</td>
+            <td>$f(1{,}1) = 1{,}21$</td>
+            <td>$\dfrac{1{,}21-1}{0{,}1} = 2{,}1$</td>
+          </tr>
+          <tr>
+            <td>$0{,}01$</td>
+            <td>$f(1{,}01) = 1{,}0201$</td>
+            <td>$\dfrac{1{,}0201-1}{0{,}01} = 2{,}01$</td>
+          </tr>
+          <tr>
+            <td>$0{,}001$</td>
+            <td>$f(1{,}001) = 1{,}002001$</td>
+            <td>$\dfrac{1{,}002001-1}{0{,}001} = 2{,}001$</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Le taux d'accroissement semble tendre vers $2$.</p>
+    </div>
+
+    <div class="btn-row">
+      <button onclick="validate(this)">Valider</button>
+      <button class="btn-passer" onclick="skipStep(this)">passer →</button>
+      <button hidden onclick="advance(this, 6)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 7 : visualisation h → 0 ────────────────────────────── -->
+  <div class="step" data-step="7" hidden>
+    <p>
+      Tu viens de voir les chiffres converger vers $2$.
+      Voilà ce que ça donne visuellement (déplace le slider pour faire tendre $h$ vers $0$) :
+    </p>
+    <div id="graph-h-limit"></div>
+    <p>
+      Quand $h$ tend vers $0$, les deux points se rapprochent jusqu'à coïncider : la sécante devient
+      une droite qui ne touche la courbe qu'en <em>un seul point</em>.
+      On appelle cette droite la <strong>tangente</strong> à la courbe au point $x$.
+    </p>
+    <div class="callout retenir">
+      <p>
+        La <strong>vitesse instantanée</strong> en $x$ (autrement appelée le <strong>nombre dérivé</strong>
+        de $f$ en $x$, noté $f'(x)$) est le <strong>coefficient directeur de la tangente</strong>
+        à la courbe de $f$ au point d'abscisse $x$.
+      </p>
+      $$f'(x) = \lim_{h \to 0} \frac{f(x+h) - f(x)}{h}$$
+    </div>
+    <div class="btn-row">
+      <button onclick="advance(this, 7)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 8 : transition vers la preuve + formule F ────────── -->
+  <div class="step" data-step="8" hidden>
+    <p>
+      Tu viens de voir numériquement que le taux d'accroissement semble tendre vers $2$.
+      Mais « semble » c'est pas très satisfaisant. Et si on avait eu moins de chance avec
+      nos valeurs de $h$ ? On va maintenant le prouver.
+    </p>
+    <p>On repart de notre formule :</p>
+    $$\frac{f(1+h) - f(1)}{h}$$
+    <p>En remplaçant $f(x)$ par sa définition, soit $f(x) = x^2$, on obtient la formule $F$ :</p>
+    $$F = \frac{(1+h)^2 - 1^2}{h}$$
+
+    <div class="btn-row">
+      <button onclick="advance(this, 8)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 9 : Question 4 ───────────────────────────────────── -->
+  <div class="step" data-step="9" hidden>
+    <p>
+      <span class="question-label">Question 4 :</span>
+      Montrer que $F = 2 + h$
+      <em>(indice : identités remarquables ;))</em>
+    </p>
+    <div class="correction" hidden>
+      <div class="correction-title">✓ Correction</div>
+      <p>On développe $(1+h)^2$ :</p>
+      $$F = \frac{(1+h)^2 - 1}{h} = \frac{1 + 2h + h^2 - 1}{h} = \frac{2h + h^2}{h}$$
+      <p>On factorise par $h$ au numérateur (on peut le faire car $h \neq 0$) :</p>
+      $$F = \frac{h(2 + h)}{h} = 2 + h$$
+    </div>
+
+    <div class="btn-row">
+      <button onclick="trustStep(this)">Valider (je te fais confiance)</button>
+      <button hidden onclick="advance(this, 9)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 10 : Question 5 ───────────────────────────────────── -->
+  <div class="step" data-step="10" hidden>
+    <p>
+      <span class="question-label">Question 5 :</span>
+      Que vaut $F$ quand $h$ tend vers $0$ ?
+    </p>
+    <input type="number" step="any" class="num-input" placeholder="?" />
+
+    <div class="feedback-wrong" hidden></div>
+
+    <div class="correction" hidden>
+      <div class="correction-title">✓ Bien joué !</div>
+      <p>
+        Quand $h$ tend vers $0$, $F = 2 + h$ tend vers $2 + 0 = 2$.
+      </p>
+      <p>
+        Le nombre dérivé de $f(x) = x^2$ en $x = 1$ est donc $f'(1) = 2$.
+      </p>
+    </div>
+
+    <div class="btn-row">
+      <button onclick="validate(this)">Valider</button>
+      <button class="btn-passer" onclick="skipStep(this)">passer →</button>
+      <button hidden onclick="advance(this, 10)">Continuer →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 11 : À retenir ────────────────────────────────────── -->
+  <div class="step" data-step="11" hidden>
+    <div class="callout retenir">
+      <div class="callout-title">À retenir</div>
+      <p>
+        Le <strong>nombre dérivé</strong> $f'(a)$ est la valeur vers laquelle tend le taux
+        d'accroissement
+      </p>
+      $$\frac{f(a+h) - f(a)}{h}$$
+      <p>
+        quand $h$ se rapproche de $0$. Géométriquement, c'est la pente de la tangente
+        à la courbe au point d'abscisse $a$.
+      </p>
+    </div>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+
+  <script>
+    const TOL = 1e-4;
+
+    function extractNumbers(str) {
+      if (!str) return [];
+      return (str.match(/-?\d+(?:[.,]\d+)?/g) || [])
+        .map(s => parseFloat(s.replace(',', '.')))
+        .filter(n => !isNaN(n));
+    }
+
+    function parseOne(str) {
+      const nums = extractNumbers(str);
+      return nums.length === 1 ? nums[0] : null;
+    }
+
+    function hasValue(str, expected, tol = TOL) {
+      return extractNumbers(str).some(n => Math.abs(n - expected) < tol);
+    }
+
+    function hasAll(str, expectedList, tol = TOL) {
+      const nums = extractNumbers(str);
+      return expectedList.every(e => nums.some(n => Math.abs(n - e) < tol));
+    }
+
+    // ─── Validators per step ────────────────────────────────────
+    const validators = {
+      1: (step) => {
+        const inp = step.querySelector('.num-input');
+        inp.classList.remove('wrong');
+        if (hasValue(inp.value, 0.5)) return { ok: true };
+        inp.classList.add('wrong');
+        return { ok: false, msg: 'Pas tout à fait, vérifie ton calcul de $(f(3) - f(1)) / (3 - 1)$.' };
+      },
+
+      3: (step) => {
+        const inputs = step.querySelectorAll('.num-input');
+        inputs.forEach(i => i.classList.remove('wrong'));
+        const vals = Array.from(inputs).map(i => parseFloat(i.value));
+        const has3 = Math.abs(vals[0] - 3) < TOL;
+        const has4 = Math.abs(vals[1] - 4) < TOL;
+        if (!has3) inputs[0].classList.add('wrong');
+        if (!has4) inputs[1].classList.add('wrong');
+        if (has3 && has4) return { ok: true };
+        if (!has3 && !has4) return { ok: false, msg: 'Les deux valeurs sont incorrectes.' };
+        return { ok: false, msg: 'Une des deux vitesses est incorrecte (surlignée en rouge).' };
+      },
+
+      6: (step) => {
+        const tableInputs = step.querySelectorAll('td input[type="number"]');
+        const limitInp = step.querySelector('.num-input');
+
+        tableInputs.forEach(i => i.classList.remove('wrong', 'ok'));
+        limitInp.classList.remove('wrong');
+
+        let allCellsOk = true;
+        tableInputs.forEach(inp => {
+          const expected = parseFloat(inp.dataset.expect);
+          const val = parseOne(inp.value);
+          if (val !== null && Math.abs(val - expected) < TOL) {
+            inp.classList.add('ok');
+          } else {
+            inp.classList.add('wrong');
+            allCellsOk = false;
+          }
+        });
+
+        const limitOk = hasValue(limitInp.value, 2);
+        if (!limitOk) limitInp.classList.add('wrong');
+
+        if (allCellsOk && limitOk) return { ok: true };
+        if (!allCellsOk && !limitOk) return { ok: false, msg: 'Certaines cases sont fausses, et la limite n\'est pas la bonne. Regarde les cases surlignées en rouge.' };
+        if (!allCellsOk) return { ok: false, msg: 'Certaines cases sont fausses (surlignées en rouge). Recalcule-les.' };
+        return { ok: false, msg: 'Les valeurs du tableau sont bonnes, mais la limite que tu donnes ne correspond pas.' };
+      },
+
+      10: (step) => {
+        const inp = step.querySelector('.num-input');
+        inp.classList.remove('wrong');
+        if (hasValue(inp.value, 2)) return { ok: true };
+        inp.classList.add('wrong');
+        return { ok: false, msg: 'Pas tout à fait. Que devient $2 + h$ quand $h \\to 0$ ?' };
+      },
+    };
+
+    // ─── UI flow ────────────────────────────────────────────────
+    function validate(btn) {
+      const step = btn.closest('.step');
+      const stepNum = parseInt(step.dataset.step, 10);
+      const result = validators[stepNum](step);
+
+      const fb = step.querySelector('.feedback-wrong');
+
+      if (result.ok) {
+        fb.hidden = true;
+        btn.hidden = true;
+        step.querySelector('.correction').hidden = false;
+        const continueBtn = step.querySelector('.btn-row button[onclick^="advance"]');
+        continueBtn.hidden = false;
+        // Re-render any KaTeX inside the freshly shown correction (idempotent on already-rendered nodes)
+        if (window.renderMathInElement) {
+          renderMathInElement(step.querySelector('.correction'), {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false}
+            ]
+          });
+        }
+        setTimeout(() => continueBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+      } else {
+        fb.textContent = '';
+        // Render feedback as plain text but allow KaTeX inside
+        fb.innerHTML = '✗ ' + result.msg;
+        fb.hidden = false;
+        if (window.renderMathInElement) {
+          renderMathInElement(fb, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false}
+            ]
+          });
+        }
+      }
+    }
+
+    function trustStep(btn) {
+      const step = btn.closest('.step');
+      btn.hidden = true;
+      step.querySelector('.correction').hidden = false;
+      const continueBtn = step.querySelector('.btn-row button[onclick^="advance"]');
+      continueBtn.hidden = false;
+      if (window.renderMathInElement) {
+        renderMathInElement(step.querySelector('.correction'), {
+          delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false}
+          ]
+        });
+      }
+      setTimeout(() => continueBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    }
+
+    function skipStep(btn) {
+      const step = btn.closest('.step');
+      const stepNum = parseInt(step.dataset.step, 10);
+      btn.hidden = true;
+      const next = document.querySelector(`[data-step="${stepNum + 1}"]`);
+      if (!next) return;
+      next.hidden = false;
+      setTimeout(() => next.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+
+    function advance(btn, currentStep) {
+      btn.hidden = true;
+      const next = document.querySelector(`[data-step="${currentStep + 1}"]`);
+      if (!next) return;
+      next.hidden = false;
+      setTimeout(() => next.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+  </script>
+
+</body>
+</html>
