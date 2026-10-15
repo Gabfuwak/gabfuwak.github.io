@@ -54,7 +54,6 @@ for (const tag of allTags) {
   const btn = document.createElement('button');
   btn.textContent = tag;
   btn.dataset.tag = tag;
-  btn.style.marginLeft = '0.5rem';
   btn.addEventListener('click', () => { selectedTag = tag; render(); });
   filters.appendChild(btn);
 }

@@ -9,7 +9,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'src/index.html'),
-        projects: resolve(__dirname, 'src/projects.html'),
+        multiViewVision: resolve(__dirname, 'src/projects/multi-view-vision/index.html'),
         experiments: resolve(__dirname, 'src/experiments.html'),
         webgpuTriangle: resolve(__dirname, 'src/experiments/webgpu-triangle.html'),
         notFound: resolve(__dirname, 'src/404.html'),

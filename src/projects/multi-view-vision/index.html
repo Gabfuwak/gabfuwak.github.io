@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Detecting and localizing faint moving objects with temporal image differences, spatial voting, and hierarchical DDA." />
+  <title>Multi-view vision</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="vision-report">
+  <nav aria-label="Project navigation">
+    <a href="/#projects">Back to selected work</a> | <a href="https://github.com/Gabfuwak/difference-voxelization">Code on GitHub</a>
+    <hr />
+  </nav>
+
+  <main>
+    <header>
+      <h1>Multi-view vision</h1>
+      <p class="report-deck">Detecting, localizing, and denoising faint moving objects.</p>
+      <p class="report-byline">With André Dal Bosco</p>
+      <p class="report-disclaimer">This write-up was prepared with AI assistance from our project report and presentation.</p>
+    </header>
+
+    <figure class="report-figure">
+      <img src="/projects/multi-view-vision/overview.png" alt="A simulated scene with trees, observation cameras, and colored rays converging around a moving target." width="2048" height="752" />
+      <figcaption>A simulated scene viewed by several cameras. Colored rays show the directions in which they detect movement.</figcaption>
+    </figure>
+
+    <section aria-labelledby="introduction">
+      <h2 id="introduction">Introduction</h2>
+      <p>Let's say we want to detect and localize a 30 cm drone at a kilometer distance, from visual input only. How can we do that? We first need to know where to look. The drone might be just a tiny splatter of pixels, too small to give us useful features to match between images.</p>
+      <p>It's a reasonable assumption that the drone is moving. Image differences can tell us which pixels changed. But how do we distinguish the drone from a bug flying in front of the camera, or a plane much further away? A close, slow object and a distant, fast one can produce very similar changes in an image.</p>
+      <p>My original motivation was an air-defense system for mosquitoes. For this class project, André and I focused on the detection problem in a simulator, rather than a field test at that distance. We assume the cameras are calibrated: we know their positions, orientations, and projection parameters.</p>
+      <p>We will start with temporal differencing, turn the changed pixels into rays, then move from ray intersections to voxel voting. Finally, we will borrow a traversal algorithm from rendering to make the search practical.</p>
+    </section>
+
+    <section aria-labelledby="temporal-differencing">
+      <h2 id="temporal-differencing">Temporal differencing</h2>
+      <p>Here is our baseline. For each camera, we take the current frame and the previous one, and compute their absolute difference. Static parts of the image mostly disappear. Moving objects, camera noise, and anything else that changes remain.</p>
+      <div class="report-comparison">
+        <figure class="report-figure">
+          <img src="/projects/multi-view-vision/scene.png" alt="A field and trees under a clear sky." width="1157" height="830" loading="lazy" />
+          <figcaption>An example scene.</figcaption>
+        </figure>
+        <figure class="report-figure">
+          <img src="/projects/multi-view-vision/temporal-difference.png" alt="The corresponding difference image, with a mostly black background and bright changes around the trees and field." width="1157" height="830" loading="lazy" />
+          <figcaption>The difference image. We see changes, not object identities.</figcaption>
+        </figure>
+      </div>
+      <p>In practice, we compute an absolute difference for each color channel, convert the resulting difference image to grayscale, and keep pixels with an intensity above 5 out of 255. Each selected pixel will give us a ray. We don't try to recognize a drone yet, only to find evidence of movement.</p>
+      <p>This works best with static cameras and a mostly static background. If the camera moves, or a whole tree sways, a lot of pixels change at once. A tiny object can still change a pixel's brightness even if it occupies less than one pixel, but that change has to be strong enough to survive the threshold.</p>
+    </section>
+
+    <section aria-labelledby="rays">
+      <h2 id="rays">From pixels to rays</h2>
+      <p>A camera image gives us directions, not distances. Since we know where each camera is and how it projects the scene, we can work backwards from a pixel to a direction in 3D. The ray starts at the camera and follows that direction. The object could be anywhere along it.</p>
+      <p>The obvious idea is to intersect rays from different cameras. However, in 3D, noisy rays will usually be skew: they pass near each other without intersecting exactly. We need a tolerance. We also don't know which rays belong to the same object, especially when our features are just a few changed pixels.</p>
+      <p>Suppose two cameras each give us <var>R</var> candidate rays. If we try every possible pairing, we have <var>R</var><sup>2</sup> pairs to check. With <var>C</var> cameras, exhaustively trying one ray from each gives <var>R</var><sup>C</sup> combinations. This is the cost of brute-force matching, not of triangulation in general, but it shows why extra noise makes this approach awkward.</p>
+      <p>Rather than guessing which rays belong together, let's shift our focus to the actual space they pass through.</p>
+    </section>
+
+    <section aria-labelledby="voxels">
+      <h2 id="voxels">Voxelization of space</h2>
+      <p>We first choose a bounded region where we want to look for objects, and divide it into small cubic cells called voxels. Instead of asking whether two rays intersect at one exact point, we ask: <em>which spatial regions contain movement that multiple cameras see?</em> Rays can miss each other slightly and still pass through the same cell. Its size gives us an explicit spatial tolerance.</p>
+      <figure class="report-figure">
+        <img src="/projects/multi-view-vision/ray-voxel.png" alt="Red and blue rays passing through the same cube, without needing to intersect at exactly the same point." width="971" height="609" loading="lazy" />
+        <figcaption>Two rays can agree on a cell without intersecting exactly. Only two are drawn here; our detector requires three camera views.</figcaption>
+      </figure>
+      <p>Another useful idea is that a bug close to one camera, or random image noise, may not have matching evidence in the other views. We keep a cell only if it has support from at least <strong>three distinct cameras</strong>. Three rays from the same camera still count as one vote. Evidence outside our chosen search region is ignored.</p>
+      <p>This rejects many inconsistent observations, but it is not a guarantee. Correlated changes can still create false detections, and an object visible to fewer than three cameras can be missed.</p>
+      <p>A naive implementation would test every ray against every voxel. With <var>V</var> voxels and <var>R</var> rays, that is O(<var>V</var> × <var>R</var>). For example, a 100 m cube divided into 10 cm cells contains 1000³ voxels. With 10,000 rays, that would mean ten trillion intersection checks. We changed the problem, but we haven't made it cheap yet. Let's avoid checking cells a ray never touches.</p>
+    </section>
+
+    <section aria-labelledby="dda">
+      <h2 id="dda">DDA: only visit cells on the ray</h2>
+      <p>To do this, we use a very simple algorithm commonly used in voxel rendering: Digital Differential Analyzer, or DDA.</p>
+      <p>We first find where the ray enters the target volume. From there, we compute when it will cross the next grid boundary on each axis. We step along the axis with the earliest crossing, update that boundary distance, and repeat until we leave the grid.</p>
+      <figure class="report-figure">
+        <img src="/projects/multi-view-vision/dda.png" alt="A three-step DDA illustration: enter a grid, choose the next axis boundary, then advance through only the cells crossed by a ray." width="1276" height="430" loading="lazy" />
+        <figcaption>DDA walks from boundary to boundary rather than testing the entire grid.</figcaption>
+      </figure>
+      <p>The traversal costs O(<var>L</var>) for a ray crossing <var>L</var> cells, instead of scanning all <var>V</var> cells. This already works very well. But let's go a bit further. A fine grid still means visiting a lot of empty space, and noise sends rays through regions we don't really care about.</p>
+    </section>
+
+    <section aria-labelledby="hierarchy">
+      <h2 id="hierarchy">A hierarchy: refine only where it matters</h2>
+      <p>Imagine that several cameras agree on a coarse cell. It might contain our object, or it might just be a chance agreement between noise rays. We can subdivide it and ask the same question again. If the evidence doesn't agree at a finer scale, that branch stops.</p>
+      <div class="report-comparison">
+        <figure class="report-figure">
+          <img src="/projects/multi-view-vision/coarse-cell.png" alt="A coarse cell containing red and blue rays, before local subdivision." width="1143" height="614" loading="lazy" />
+          <figcaption>A coarse cell can contain both useful evidence and chance agreement between noise rays.</figcaption>
+        </figure>
+        <figure class="report-figure">
+          <img src="/projects/multi-view-vision/refined-cell.png" alt="The same region with green subdivision boundaries around a smaller candidate region." width="1143" height="614" loading="lazy" />
+          <figcaption>Test smaller regions inside that cell. Keep refining only where camera votes still agree.</figcaption>
+        </figure>
+      </div>
+      <p>This coarse-to-fine idea is common in rendering too. An octree, for example, splits a cube into eight smaller cubes and repeats inside them. We use the same idea, but with a finer local grid that DDA can traverse efficiently. This is our hierarchical DDA.</p>
+      <p>Here is one refinement step:</p>
+      <ol>
+        <li>Split the current cube into an 8 × 8 × 8 grid: 512 smaller cells.</li>
+        <li>Use DDA to walk each candidate ray through that grid, recording which cells it crosses and which camera it came from.</li>
+        <li>Discard cells supported by fewer than three distinct cameras.</li>
+        <li>For every surviving cell, repeat with a new local grid, using only the rays that crossed that cell.</li>
+      </ol>
+      <p>Each surviving cell becomes the cube for the next step. We stop refining when its edge is at most 10 cm; near that limit, we reduce the subdivision size. The result is an adaptive collection of small cells, not a dense fine grid covering the whole scene.</p>
+      <p>We still store ray lists and surviving branches, so memory is not free. The useful part is that unsupported regions stop costing us work at finer scales.</p>
+      <p>There is one more detail. A pixel covers a small angular region, not an infinitely thin line. We estimate its width at the current distance from the camera's field of view and image width. When it is too wide relative to the smaller cells, we replace its central ray with four slightly offset rays. This is a sampling heuristic, not exact coverage of the pixel's full cone, and all four rays still count as one camera vote.</p>
+    </section>
+
+    <section aria-labelledby="tracking">
+      <h2 id="tracking">From voxels to tracks</h2>
+      <p>At this point, we have a coarse voxelization of possible moving objects. One object may produce several adjacent detections, so we still need some post-processing.</p>
+      <p>We connect voxel centers that are within 25 cm of each other, then collect the groups joined by those connections. Groups with fewer than three voxels are discarded. For each remaining group, we average its voxel centers to get a centroid: one approximate object position rather than a cloud of detections.</p>
+      <p>Now we can follow those positions over time. In each frame, we match a centroid to the closest unmatched track, provided it moved less than 5 m from that track's last position. An unmatched centroid starts a new track. We confirm it after observations in three frames, and remove it after six consecutive missed frames. This lets tracks survive short gaps, but the greedy matching can swap identities when objects cross.</p>
+    </section>
+
+    <section aria-labelledby="results">
+      <h2 id="results">What did we actually get?</h2>
+      <p>Our simulator uses five 800 × 600 cameras, roughly 180 m from the scene center. A moving 20 cm cube is the target, and small simulated insects move near the cameras. The search region is a 500 m cube. This gives us controlled images and known geometry to try the full pipeline, from changed pixels to tracked 3D positions.</p>
+      <p>WebGPU renders the observations at twice their output resolution, then downsamples them. We read the images back and run detection, clustering, and tracking on the CPU in C++ with OpenCV and Eigen.</p>
+      <details class="report-recording">
+        <summary>Play the recorded simulation</summary>
+        <figure class="report-figure">
+          <img src="/media/multi-view-vision.gif" alt="Recorded simulation showing camera rays, detection voxels, and a statistics panel around a moving target." width="640" height="429" loading="lazy" />
+          <figcaption>Camera-colored rays and wireframe cells show where motion evidence agrees in 3D. The panel displays detector time, candidate voxel and cluster counts, and position error for a confirmed track.</figcaption>
+        </figure>
+      </details>
+      <p>This is a qualitative demonstration in simulation, not a measurement of detection or false-positive rates on real footage. The recorded example shows roughly 45 ms for detection with debug visualization enabled. That excludes rendering, image readback, clustering, and tracking, so it is not the time for the whole frame.</p>
+    </section>
+
+    <section aria-labelledby="conclusion">
+      <h2 id="conclusion">Conclusion</h2>
+      <p>In the end, we went from a few 2D views to candidate 3D regions without explicitly matching faint features across cameras. The part I find interesting is that a rendering algorithm becomes a vision algorithm: we use rays to collect evidence about the scene, rather than to calculate its color.</p>
+      <p>There is still a lot to do before trying this outside the simulator. We assumed known camera calibration, static views, and synchronized observations. Real backgrounds, exposure changes, occlusions, and calibration errors need testing. The prototype detects and tracks motion; it does not tell us whether that motion is a bird, a drone, or a mosquito.</p>
+      <p>A GPU detector would be an interesting next step. DDA is well suited to parallel traversal, although adaptive refinement and camera voting would need some care. For now, we have the detection pipeline, not the mosquito defense system.</p>
+    </section>
+
+    <section aria-labelledby="sources">
+      <h2 id="sources">Sources</h2>
+      <ul class="report-sources">
+        <li><a href="https://github.com/Gabfuwak/difference-voxelization/blob/6da989b2e9b77da2c203b6b7aaefa66f484dcb98/src/vision/detect_object.hpp">Ray generation, DDA, and recursive detection</a></li>
+        <li><a href="https://github.com/Gabfuwak/difference-voxelization/blob/6da989b2e9b77da2c203b6b7aaefa66f484dcb98/src/vision/cluster_detections.hpp">Voxel clustering</a> and <a href="https://github.com/Gabfuwak/difference-voxelization/blob/6da989b2e9b77da2c203b6b7aaefa66f484dcb98/src/vision/track_clusters.hpp">track association</a></li>
+        <li><a href="https://github.com/Gabfuwak/difference-voxelization/blob/6da989b2e9b77da2c203b6b7aaefa66f484dcb98/src/main.cpp">Simulation setup and timing</a> and <a href="https://github.com/Gabfuwak/difference-voxelization/blob/6da989b2e9b77da2c203b6b7aaefa66f484dcb98/src/core/multi_camera_capture.hpp">camera capture</a></li>
+        <li>Original inspiration: <a href="https://www.youtube.com/watch?v=YZkLQsv3huo">Consistently Inconsistent</a> and <a href="https://github.com/ConsistentlyInconsistentYT/Pixeltovoxelprojector">Pixel to Voxel Projector</a>.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

@@ -3,21 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Portfolio</title>
+  <title>Gabfuwak — Portfolio</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
-  <nav>
-    <a href="/">Home</a> | <a href="/projects.html">Projects</a> | <a href="/experiments.html">Experiments</a>
-    <hr />
-  </nav>
+<body class="portfolio">
+  <header class="portfolio-header">
+    <div>
+      <h1>Gabfuwak</h1>
+      <p class="portfolio-tagline">Computer graphics, robotics &amp; simulation.</p>
+    </div>
+    <a href="#projects">Projects</a>
+  </header>
 
-  <h1>Welcome</h1>
-  <p>Welcome to my website! I document my projects and experiments here in robotics, AI, computer graphics and more in the future. This serves as a portfolio but feel free to use any code or methods.</p>
-  <p>I've been doing a lot of WebGPU recently. You can check what I'm working on here: <a href="/playground.html">Playground</a> (careful: it's a work in progress and might be unstable or run very slow). If you want to explore my other computer graphics experiments I would recommend activating WebGPU flags in your browser (and use Chrome if you're running Linux).</p>
-
-  <h1>About me</h1>
-  <p>I'm a CS student in France, I'm mostly interested in robotics, computer graphics, deep learning and computer vision but overall any subject that impacts the world around us in a way or another.</p>
-  <p>Outside of more technical subjects I'm really into cooking, photography, rock climbing and many other things, so don't be surprised if you find pastries between representations learning [WIP] and ray tracing [WIP] in the experiments tab.</p>
+  <main>
+    <section id="projects" class="project-grid" aria-label="Projects">
+      <article class="project-card">
+        <a class="project-card-link" href="/projects/restir/" aria-labelledby="path-tracing-title">
+          <div class="project-media project-media--path-tracing">
+            <img src="/media/path-traced-dragon.png" alt="A path-traced golden dragon in a Cornell box with red and green walls." width="1020" height="909">
+          </div>
+          <h2 id="path-tracing-title">Efficient path tracing</h2>
+        </a>
+      </article>
+      <article class="project-card">
+        <div class="project-media">
+          <img src="/media/microduck.gif" alt="Microduck augmented-reality robot interaction demonstration." width="640" height="400" loading="lazy">
+        </div>
+        <h2>AR robot interaction</h2>
+      </article>
+      <article class="project-card">
+        <a class="project-card-link" href="/projects/multi-view-vision/" aria-labelledby="multi-view-title">
+          <div class="project-media project-media--multi-view">
+            <img src="/media/multi-view-vision.gif" alt="Multi-view vision simulation showing camera rays and detected objects." width="640" height="429" loading="lazy">
+          </div>
+          <h2 id="multi-view-title">Multi view vision</h2>
+        </a>
+      </article>
+      <article class="project-card">
+        <div class="project-media project-media--locomotion">
+          <img src="/media/expressive-locomotion.gif" alt="A simulated bipedal walker demonstrating expressive locomotion." width="960" height="671" loading="lazy">
+        </div>
+        <h2>Expressive locomotion</h2>
+      </article>
+    </section>
+  </main>
 </body>
 </html>
