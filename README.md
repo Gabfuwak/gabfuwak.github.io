@@ -26,6 +26,12 @@ The Efficient path tracing render is served from `src/public/media/path-traced-d
 
 The AR robot interaction preview uses `src/public/media/microduck.gif`. It retains the 1120 × 700 crop at (500, 380), removes the final 0.7 seconds of the video, and loops for approximately 4.87 seconds at 640 × 400 and 20 FPS. The original video outside the repository is unchanged.
 
+## Unlisted simulation notes
+
+`/secret/differentiablephysics/` contains the simulation knowledge tree, current reading, and interactive spring/integration notes. It links to the WebGPU PBD simulator at `/secret/differentiablephysics/pbd.html`. Neither page is linked from the public navigation; both request `noindex, nofollow`, which is not access control.
+
+Sources live in `src/secret/differentiablephysics/`, with simulator shaders in `src/public/secret/differentiablephysics/shaders/`. These are a snapshot of the simulation project, not automatically synchronized. KaTeX is bundled locally; the simulator requires a WebGPU-capable browser.
+
 ## Development
 
 ```bash

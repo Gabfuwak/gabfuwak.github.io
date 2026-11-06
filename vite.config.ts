@@ -16,6 +16,8 @@ export default defineConfig({
         playground: resolve(__dirname, 'src/playground.html'),
         secretAssignment: resolve(__dirname, 'src/secret/assignment.html'),
         secretPlayground: resolve(__dirname, 'src/secret/playground.html'),
+        simulation: resolve(__dirname, 'src/secret/differentiablephysics/pbd.html'),
+        simulationNotes: resolve(__dirname, 'src/secret/differentiablephysics/index.html'),
       restir: resolve(__dirname, 'src/projects/restir/index.html'),
       deriveeLesson: resolve(__dirname, 'src/lessons/derivee/index.html'),
       },
